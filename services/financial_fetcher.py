@@ -30,16 +30,20 @@ def _get_val(df: pd.DataFrame, posibles: list[str], col: Any, is_per_share: bool
 
 
 def fetch_company_profile(ticker: str) -> dict[str, Any] | None:
-    """Fetch company profile metadata using yfinance."""
+    """Fetch company profile metadata using yfinance with safe fallback."""
     clean_ticker = (ticker or "").strip().upper()
     if not clean_ticker:
         return None
 
     try:
         t = yf.Ticker(clean_ticker)
-        info = t.info or {}
-        if not info or "longName" not in info and "shortName" not in info:
-            return None
+        info = {}
+        try:
+            info = t.info or {}
+        except Exception as ex:
+            logger.warning(f"Could not retrieve yfinance info for {clean_ticker}: {ex}")
+
+        name = info.get("longName") or info.get("shortName") or info.get("name") or clean_ticker
 
         # Convert shares to Millions
         shares_raw = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding") or 0
@@ -49,23 +53,38 @@ def fetch_company_profile(ticker: str) -> dict[str, Any] | None:
         cash_m = float(info.get("totalCash") or 0) / 1_000_000.0
         debt_m = float(info.get("totalDebt") or 0) / 1_000_000.0
 
+        price = float(info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 100.0)
+
         return {
             "ticker": clean_ticker,
-            "name": info.get("longName") or info.get("shortName") or clean_ticker,
+            "name": name,
             "sector": info.get("sector", "N/A"),
             "industry": info.get("industry", "N/A"),
             "country": info.get("country", "United States"),
             "website": info.get("website", ""),
             "description": info.get("longBusinessSummary", ""),
             "status": "Watchlist",
-            "current_price": float(info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or 100.0),
+            "current_price": price,
             "shares_outstanding": max(shares_m, 1.0),
             "cash": cash_m,
             "debt": debt_m,
         }
     except Exception as e:
         logger.error(f"Error fetching company profile for {clean_ticker}: {e}")
-        return None
+        return {
+            "ticker": clean_ticker,
+            "name": clean_ticker,
+            "sector": "N/A",
+            "industry": "N/A",
+            "country": "United States",
+            "website": "",
+            "description": "",
+            "status": "Watchlist",
+            "current_price": 100.0,
+            "shares_outstanding": 1.0,
+            "cash": 0.0,
+            "debt": 0.0,
+        }
 
 
 def _parse_statements(
@@ -93,6 +112,10 @@ def _parse_statements(
             month = date_obj.month
             fiscal_quarter = (month - 1) // 3 + 1
 
+        shares = _get_val(balance_df, ["Ordinary Shares Number", "Share Issued", "Treasury Shares Number"], col)
+        if shares <= 0:
+            shares = 1.0
+
         rev = _get_val(income_df, ["Total Revenue", "Operating Revenue", "Revenue"], col)
         gp = _get_val(income_df, ["Gross Profit", "GrossMargin"], col)
         op_inc = _get_val(income_df, ["Operating Income", "Total Operating Income As Reported", "EBIT"], col)
@@ -101,7 +124,6 @@ def _parse_statements(
         if eps == 0.0 and net_inc != 0 and shares > 0:
             eps = round(net_inc / shares, 2)
 
-
         fcf = _get_val(cashflow_df, ["Free Cash Flow"], col)
         capex = abs(_get_val(cashflow_df, ["Capital Expenditure", "Capital Expenditures"], col))
         rnd = _get_val(income_df, ["Research And Development"], col)
@@ -109,10 +131,6 @@ def _parse_statements(
 
         cash = _get_val(balance_df, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents", "Cash Financial"], col)
         debt = _get_val(balance_df, ["Total Debt", "Net Debt", "Long Term Debt"], col)
-
-        shares = _get_val(balance_df, ["Ordinary Shares Number", "Share Issued", "Treasury Shares Number"], col)
-        if shares <= 0:
-            shares = 1.0
 
         period_label = f"{fiscal_year} Q{fiscal_quarter}" if period_type == "Quarterly" else f"FY{fiscal_year}"
 
