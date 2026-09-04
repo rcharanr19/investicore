@@ -163,7 +163,7 @@ if company_rows:
                     df[m_col] = (df[m_col] * scale_factor).round(2)
 
             if show_growth:
-                for g_col in ["revenue", "net_income", "free_cash_flow"]:
+                for g_col in ["revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow"]:
                     if g_col in df.columns:
                         pct = df[g_col].pct_change() * 100.0
                         df[f"{g_col}_growth_%"] = pct.round(2)
@@ -182,13 +182,25 @@ if company_rows:
                     if col_name not in df_fin.columns:
                         df_fin[col_name] = 0.0
 
-                display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "revenue_growth_%", "gross_profit", "operating_income", "net_income", "net_income_growth_%", "eps", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_fin.columns]
+                display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "revenue_growth_%", "gross_profit", "gross_profit_growth_%", "operating_income", "operating_income_growth_%", "net_income", "net_income_growth_%", "eps", "eps_growth_%", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_fin.columns]
                 st.write(f"Historical Annual Financial Statements ({unit_suffix}):")
                 st.dataframe(df_fin[display_cols], use_container_width=True)
 
-                cagr = financial_repository.calculate_historical_cagr(selected_cid, "revenue", period_type="Annual")
-                if cagr is not None:
-                    st.info(f"Historical Annual Revenue CAGR: **{cagr:.2f}%** across {len(fin_records)} recorded fiscal years.")
+                # Metric CAGR Summary Cards
+                c_rev = financial_repository.calculate_historical_cagr(selected_cid, "revenue", period_type="Annual")
+                c_net = financial_repository.calculate_historical_cagr(selected_cid, "net_income", period_type="Annual")
+                c_fcf = financial_repository.calculate_historical_cagr(selected_cid, "free_cash_flow", period_type="Annual")
+                c_eps = financial_repository.calculate_historical_cagr(selected_cid, "eps", period_type="Annual")
+
+                cg1, cg2, cg3, cg4 = st.columns(4)
+                with cg1:
+                    st.metric("Annual Revenue CAGR", f"{c_rev:.2f}%" if c_rev is not None else "N/A")
+                with cg2:
+                    st.metric("Annual Net Income CAGR", f"{c_net:.2f}%" if c_net is not None else "N/A")
+                with cg3:
+                    st.metric("Annual FCF CAGR", f"{c_fcf:.2f}%" if c_fcf is not None else "N/A")
+                with cg4:
+                    st.metric("Annual EPS CAGR", f"{c_eps:.2f}%" if c_eps is not None else "N/A")
 
                 try:
                     fig = px.bar(
@@ -216,9 +228,25 @@ if company_rows:
                     if col_name not in df_q.columns:
                         df_q[col_name] = 0.0
 
-                display_cols_q = [c for c in ["period_label", "fiscal_year", "fiscal_quarter", "revenue", "revenue_growth_%", "gross_profit", "operating_income", "net_income", "net_income_growth_%", "eps", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_q.columns]
+                display_cols_q = [c for c in ["period_label", "fiscal_year", "fiscal_quarter", "revenue", "revenue_growth_%", "gross_profit", "gross_profit_growth_%", "operating_income", "operating_income_growth_%", "net_income", "net_income_growth_%", "eps", "eps_growth_%", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_q.columns]
                 st.write(f"Historical Quarterly Financial Statements ({unit_suffix}):")
                 st.dataframe(df_q[display_cols_q], use_container_width=True)
+
+                # Quarterly Annualized CAGR Summary Cards
+                cq_rev = financial_repository.calculate_historical_cagr(selected_cid, "revenue", period_type="Quarterly")
+                cq_net = financial_repository.calculate_historical_cagr(selected_cid, "net_income", period_type="Quarterly")
+                cq_fcf = financial_repository.calculate_historical_cagr(selected_cid, "free_cash_flow", period_type="Quarterly")
+                cq_eps = financial_repository.calculate_historical_cagr(selected_cid, "eps", period_type="Quarterly")
+
+                qg1, qg2, qg3, qg4 = st.columns(4)
+                with qg1:
+                    st.metric("Quarterly Revenue CAGR (Ann.)", f"{cq_rev:.2f}%" if cq_rev is not None else "N/A")
+                with qg2:
+                    st.metric("Quarterly Net Income CAGR (Ann.)", f"{cq_net:.2f}%" if cq_net is not None else "N/A")
+                with qg3:
+                    st.metric("Quarterly FCF CAGR (Ann.)", f"{cq_fcf:.2f}%" if cq_fcf is not None else "N/A")
+                with qg4:
+                    st.metric("Quarterly EPS CAGR (Ann.)", f"{cq_eps:.2f}%" if cq_eps is not None else "N/A")
 
                 try:
                     fig_q = px.bar(
@@ -234,6 +262,7 @@ if company_rows:
                     st.warning(f"Could not render quarterly trend chart: {err}")
             else:
                 st.info("No quarterly financial statement records entered for this company yet.")
+
 
         with tab_ttm:
             ttm_data = financial_repository.calculate_ttm(selected_cid)

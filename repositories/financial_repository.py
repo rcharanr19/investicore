@@ -183,10 +183,22 @@ class FinancialRepository:
             return None
         first = float(records[0].get(metric, 0.0) or 0.0)
         last = float(records[-1].get(metric, 0.0) or 0.0)
-        years = records[-1]["fiscal_year"] - records[0]["fiscal_year"]
+
+        if period_type == "Quarterly":
+            start_q = records[0].get("fiscal_quarter") or 1
+            end_q = records[-1].get("fiscal_quarter") or 1
+            years = (records[-1]["fiscal_year"] - records[0]["fiscal_year"]) + (end_q - start_q) / 4.0
+            if years <= 0:
+                years = (len(records) - 1) / 4.0
+        else:
+            years = float(records[-1]["fiscal_year"] - records[0]["fiscal_year"])
+            if years <= 0:
+                years = float(len(records) - 1)
+
         if first <= 0 or last <= 0 or years <= 0:
             return None
-        return (((last / first) ** (1 / years)) - 1) * 100.0
+        return (((last / first) ** (1.0 / years)) - 1.0) * 100.0
+
 
 
 
