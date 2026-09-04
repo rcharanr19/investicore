@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from database.client import get_db_table
 from services.scoring import validate_probability_mix
 from services.valuation import calculate_expected_return, calculate_future_fcf, calculate_future_revenue
 
@@ -16,10 +17,45 @@ class ScenarioRepository:
         if not validate_probability_mix(probs):
             raise ValueError("Scenario probabilities must total exactly 100%.")
 
+        table = get_db_table("scenarios")
+        if table is not None and not str(analysis_id).startswith("analysis-"):
+            try:
+                for name, s_data in scenarios.items():
+                    payload = {
+                        "analysis_id": analysis_id,
+                        "scenario_name": name,
+                        "probability": int(s_data.get("probability", 33)),
+                        "revenue_cagr": float(s_data.get("revenue_cagr", 0.10)),
+                        "forecast_period": int(s_data.get("forecast_period", 5)),
+                        "fcf_margin": float(s_data.get("fcf_margin", 0.20)),
+                        "terminal_multiple": float(s_data.get("terminal_multiple", 15.0)),
+                    }
+                    table.insert(payload).execute()
+            except Exception:
+                pass
+
         self._store[analysis_id] = scenarios
         return self._store[analysis_id]
 
     def get_scenarios(self, analysis_id: str) -> dict[str, dict[str, Any]]:
+        table = get_db_table("scenarios")
+        if table is not None and not str(analysis_id).startswith("analysis-"):
+            try:
+                res = table.select("*").eq("analysis_id", analysis_id).execute()
+                if res and res.data:
+                    scen_map = {}
+                    for row in res.data:
+                        scen_map[row["scenario_name"]] = {
+                            "probability": row.get("probability", 33),
+                            "revenue_cagr": float(row.get("revenue_cagr", 0.10)) if row.get("revenue_cagr") else 0.10,
+                            "forecast_period": row.get("forecast_period", 5),
+                            "fcf_margin": float(row.get("fcf_margin", 0.20)) if row.get("fcf_margin") else 0.20,
+                            "terminal_multiple": float(row.get("terminal_multiple", 15.0)) if row.get("terminal_multiple") else 15.0,
+                        }
+                    self._store[analysis_id] = scen_map
+                    return scen_map
+            except Exception:
+                pass
         return self._store.get(analysis_id, {})
 
     def calculate_scenario_outputs(
