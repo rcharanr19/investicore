@@ -57,7 +57,7 @@ def seed_core_data() -> None:
             }
         )
 
-    # Seed 3 years of financial history for META
+    # Seed 3 years of financial history for META (Annual)
     financial_repository.create_or_update(company["id"], 2023, {
         "revenue": 134900.0,
         "gross_profit": 108900.0,
@@ -71,7 +71,7 @@ def seed_core_data() -> None:
         "cash": 65400.0,
         "debt": 18390.0,
         "shares_outstanding": 2570.0,
-    })
+    }, period_type="Annual")
     financial_repository.create_or_update(company["id"], 2024, {
         "revenue": 160000.0,
         "gross_profit": 130000.0,
@@ -85,7 +85,7 @@ def seed_core_data() -> None:
         "cash": 72000.0,
         "debt": 18400.0,
         "shares_outstanding": 2530.0,
-    })
+    }, period_type="Annual")
     financial_repository.create_or_update(company["id"], 2025, {
         "revenue": 185000.0,
         "gross_profit": 152000.0,
@@ -99,7 +99,32 @@ def seed_core_data() -> None:
         "cash": 78000.0,
         "debt": 18500.0,
         "shares_outstanding": 2500.0,
-    })
+    }, period_type="Annual")
+
+    # Seed 4 quarters of 2025 for META (Quarterly)
+    q_data = [
+        (1, 42000.0, 34000.0, 15500.0, 13000.0, 5.10, 13500.0),
+        (2, 45000.0, 37000.0, 17000.0, 14200.0, 5.60, 14800.0),
+        (3, 47500.0, 39000.0, 18200.0, 15300.0, 6.00, 15700.0),
+        (4, 50500.0, 42000.0, 19300.0, 16500.0, 6.50, 17000.0),
+    ]
+    for q_num, q_rev, q_gp, q_op, q_net, q_eps, q_fcf in q_data:
+        financial_repository.create_or_update(company["id"], 2025, {
+            "period_type": "Quarterly",
+            "fiscal_quarter": q_num,
+            "revenue": q_rev,
+            "gross_profit": q_gp,
+            "operating_income": q_op,
+            "net_income": q_net,
+            "eps": q_eps,
+            "free_cash_flow": q_fcf,
+            "capex": 10500.0,
+            "rnd": 12000.0,
+            "sbc": 3875.0,
+            "cash": 78000.0,
+            "debt": 18500.0,
+            "shares_outstanding": 2500.0,
+        }, period_type="Quarterly", fiscal_quarter=q_num)
 
     if analysis:
         aid = analysis["id"]

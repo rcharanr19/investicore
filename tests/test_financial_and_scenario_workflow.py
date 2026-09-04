@@ -25,6 +25,30 @@ def test_financial_repository_operations():
     assert round(cagr, 2) == 15.00
 
 
+def test_quarterly_financials_and_ttm_calculation():
+    repo = FinancialRepository()
+    company_id = "company-fin-q"
+
+    # Create 4 quarters of 2025
+    repo.create_or_update(company_id, 2025, {"revenue": 100.0, "net_income": 10.0, "free_cash_flow": 12.0, "cash": 50.0}, period_type="Quarterly", fiscal_quarter=1)
+    repo.create_or_update(company_id, 2025, {"revenue": 110.0, "net_income": 12.0, "free_cash_flow": 15.0, "cash": 55.0}, period_type="Quarterly", fiscal_quarter=2)
+    repo.create_or_update(company_id, 2025, {"revenue": 115.0, "net_income": 13.0, "free_cash_flow": 16.0, "cash": 60.0}, period_type="Quarterly", fiscal_quarter=3)
+    repo.create_or_update(company_id, 2025, {"revenue": 125.0, "net_income": 15.0, "free_cash_flow": 18.0, "cash": 70.0}, period_type="Quarterly", fiscal_quarter=4)
+
+    quarters = repo.get_by_company(company_id, period_type="Quarterly")
+    assert len(quarters) == 4
+    assert quarters[0]["period_label"] == "2025 Q1"
+    assert quarters[-1]["period_label"] == "2025 Q4"
+
+    ttm = repo.calculate_ttm(company_id)
+    assert ttm is not None
+    assert ttm["period_type"] == "TTM"
+    assert ttm["revenue"] == 450.0  # 100 + 110 + 115 + 125
+    assert ttm["net_income"] == 50.0 # 10 + 12 + 13 + 15
+    assert ttm["free_cash_flow"] == 61.0 # 12 + 15 + 16 + 18
+    assert ttm["cash"] == 70.0 # Latest quarter balance sheet cash
+
+
 def test_scenario_repository_operations_and_calculations():
     scenario_repo = ScenarioRepository()
     analysis_id = "analysis-scen-1"

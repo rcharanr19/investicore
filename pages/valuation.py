@@ -39,12 +39,15 @@ selected_aid = st.selectbox(
     format_func=lambda aid: next(f"v{a.get('version_number', 1)} - {a.get('analysis_date', 'Unknown')}" for a in versions if a["id"] == aid),
 )
 
-# Load baseline financial metrics if available
-latest_fin = financial_repository.get_latest(selected_cid)
+# Load baseline financial metrics if available (TTM or latest Annual)
+latest_fin = financial_repository.calculate_ttm(selected_cid) or financial_repository.get_latest(selected_cid)
 default_rev = float(latest_fin["revenue"]) if latest_fin else 1000.0
 default_cash = float(latest_fin["cash"]) if latest_fin else 0.0
 default_debt = float(latest_fin["debt"]) if latest_fin else 0.0
 default_shares = float(latest_fin["shares_outstanding"]) if latest_fin else 50.0
+
+if latest_fin:
+    st.info(f"Baseline Inputs loaded from: **{latest_fin.get('period_label', 'Latest Record')}**")
 
 st.subheader("Baseline Inputs")
 b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
