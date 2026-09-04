@@ -61,3 +61,38 @@ def test_analysis_versioning_keeps_historical_record_immutable():
     assert repo.get_by_id(first["id"])["notes"] == "v1"
     assert repo.get_by_id(first["id"])["decision"] == "Buy"
     assert second["previous_analysis_id"] == first["id"]
+
+
+def test_analysis_answers_and_version_comparison():
+    repo = AnalysisRepository()
+    analysis = repo.create({
+        "company_id": "company-101",
+        "framework_version": "1.0",
+        "analysis_date": "2026-09-04",
+        "status": "Draft",
+        "decision": "Watch",
+        "confidence": 60,
+        "overall_score": 6.5,
+        "notes": "Base thesis",
+        "version_number": 1,
+        "previous_analysis_id": None,
+        "change_summary": "Initial",
+    })
+
+    repo.save_answers(analysis["id"], {"business_model": "Subscription", "management_quality": 8})
+    assert repo.get_answers(analysis["id"])["business_model"] == "Subscription"
+
+    previous = repo.get_by_id(analysis["id"])
+    updated = repo.create_version("company-101", analysis["id"], {
+        "analysis_date": "2026-09-20",
+        "status": "Completed",
+        "decision": "Buy",
+        "confidence": 75,
+        "overall_score": 7.8,
+        "notes": "Updated thesis",
+        "change_summary": "Higher conviction",
+    })
+
+    comparison = repo.compare_versions(previous["id"], updated["id"])
+    assert comparison["decision_change"] == ("Watch", "Buy")
+    assert comparison["score_change"] == (6.5, 7.8)

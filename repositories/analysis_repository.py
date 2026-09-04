@@ -6,6 +6,7 @@ from typing import Any
 class AnalysisRepository:
     def __init__(self):
         self._store: dict[str, dict[str, Any]] = {}
+        self._answers: dict[str, dict[str, Any]] = {}
 
     def create(self, data: dict[str, Any]) -> dict[str, Any]:
         analysis_id = data.get("id") or f"analysis-{len(self._store) + 1}"
@@ -47,6 +48,29 @@ class AnalysisRepository:
             "change_summary": data.get("change_summary", "Updated analysis"),
         }
         return self.create(payload)
+
+    def save_answers(self, analysis_id: str, answers: dict[str, Any]) -> dict[str, Any]:
+        current = self._answers.setdefault(analysis_id, {})
+        current.update(answers)
+        return current
+
+    def get_answers(self, analysis_id: str) -> dict[str, Any]:
+        return dict(self._answers.get(analysis_id, {}))
+
+    def compare_versions(self, previous_analysis_id: str, current_analysis_id: str) -> dict[str, Any]:
+        previous = self.get_by_id(previous_analysis_id)
+        current = self.get_by_id(current_analysis_id)
+        if previous is None or current is None:
+            return {
+                "decision_change": (None, None),
+                "score_change": (None, None),
+                "notes_change": (None, None),
+            }
+        return {
+            "decision_change": (previous.get("decision"), current.get("decision")),
+            "score_change": (previous.get("overall_score"), current.get("overall_score")),
+            "notes_change": (previous.get("notes"), current.get("notes")),
+        }
 
     def update(self, analysis_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
         current = self._store.get(analysis_id)
