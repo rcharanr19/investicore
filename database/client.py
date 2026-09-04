@@ -29,9 +29,23 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
 
 def get_supabase_client():
-    if not SUPABASE_URL or not SUPABASE_KEY or create_client is None:
+    url = SUPABASE_URL
+    key = SUPABASE_KEY
+
+    # Fallback to Streamlit secrets if environment variables are not set (e.g. in deployed apps)
+    if not url or not key:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                url = url or st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase_url")
+                key = key or st.secrets.get("SUPABASE_KEY") or st.secrets.get("supabase_key")
+        except Exception:
+            pass
+
+    if not url or not key or create_client is None:
         return None
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    return create_client(url, key)
+
 
 
 def get_db_table(table_name: str):
