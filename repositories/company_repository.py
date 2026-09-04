@@ -25,6 +25,21 @@ class CompanyRepository:
         self._store[company_id] = record
         return record
 
+    def update(self, company_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+        current = self._store.get(company_id)
+        if current is None:
+            return None
+        current.update(data)
+        current["updated_at"] = data.get("updated_at", "2026-01-01T00:00:00Z")
+        self._store[company_id] = current
+        return current
+
+    def delete(self, company_id: str) -> bool:
+        if company_id in self._store:
+            del self._store[company_id]
+            return True
+        return False
+
     def get_by_id(self, company_id: str) -> dict[str, Any] | None:
         return self._store.get(company_id)
 
