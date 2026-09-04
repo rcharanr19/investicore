@@ -133,13 +133,65 @@ if company_rows:
                         st.success(f"Refreshed financials for {current_comp['ticker']}!")
                         st.rerun()
 
-        tab_annual, tab_quarterly, tab_ttm = st.tabs(["📅 Annual Statements", "📆 Quarterly Statements", "📊 TTM Summary"])
+    if selected_cid:
+        current_comp = next((c for c in company_rows if c["id"] == selected_cid), None)
+        if current_comp:
+            c_head1, c_head2 = st.columns([3, 1])
+            with c_head1:
+                st.caption(f"Sector: **{current_comp.get('sector', 'N/A')}** | Industry: **{current_comp.get('industry', 'N/A')}** | Website: {current_comp.get('website', 'N/A')}")
+            with c_head2:
+                if st.button("⚡ Refresh from Yahoo Finance", use_container_width=True):
+                    with st.spinner(f"Refreshing financials for {current_comp['ticker']}..."):
+                        hist = fetch_financial_history(current_comp['ticker'])
+                        for rec in hist.get("annual", []):
+                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Annual", fiscal_quarter=None)
+                        for rec in hist.get("quarterly", []):
+                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Quarterly", fiscal_quarter=rec.get("fiscal_quarter"))
+                        st.success(f"Refreshed financials for {current_comp['ticker']}!")
+                        st.rerun()
 
+        st.divider()
+        st.subheader("⚙️ Financial Display Settings")
+        c_u1, c_u2 = st.columns([2, 2])
+        with c_u1:
+            unit_choice = st.radio(
+                "Display Currency Unit",
+                ["Millions ($M)", "Billions ($B)", "Thousands ($K)"],
+                horizontal=True,
+                key="unit_radio",
+            )
+        with c_u2:
+            show_growth = st.checkbox("Include Period-over-Period Growth % in Tables", value=True, key="growth_cols_cb")
+
+        unit_scale_map = {
+            "Millions ($M)": (1.0, "$M"),
+            "Billions ($B)": (0.001, "$B"),
+            "Thousands ($K)": (1000.0, "$K"),
+        }
+        scale_factor, unit_suffix = unit_scale_map[unit_choice]
+        monetary_cols = ["revenue", "gross_profit", "operating_income", "net_income", "free_cash_flow", "capex", "rnd", "sbc", "cash", "debt"]
+
+        def prepare_display_df(records_list: list[dict]):
+            if not records_list:
+                return pd.DataFrame()
+            df = pd.DataFrame(records_list)
+            for m_col in monetary_cols:
+                if m_col in df.columns:
+                    df[m_col] = (df[m_col] * scale_factor).round(2)
+
+            if show_growth:
+                for g_col in ["revenue", "net_income", "free_cash_flow"]:
+                    if g_col in df.columns:
+                        pct = df[g_col].pct_change() * 100.0
+                        df[f"{g_col}_growth_%"] = pct.round(2)
+            return df
+
+        tab_annual, tab_quarterly, tab_ttm = st.tabs(["📅 Annual Statements", "📆 Quarterly Statements", "📊 TTM Summary"])
 
         with tab_annual:
             fin_records = financial_repository.get_by_company(selected_cid, period_type="Annual")
             if fin_records:
-                df_fin = pd.DataFrame(fin_records)
+                df_fin = prepare_display_df(fin_records)
                 if "period_label" not in df_fin.columns and "fiscal_year" in df_fin.columns:
                     df_fin["period_label"] = df_fin["fiscal_year"].apply(lambda y: f"FY{y}")
                 
@@ -147,8 +199,8 @@ if company_rows:
                     if col_name not in df_fin.columns:
                         df_fin[col_name] = 0.0
 
-                display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow", "capex", "cash", "debt"] if c in df_fin.columns]
-                st.write("Historical Annual Financial Statements ($ in Millions):")
+                display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "revenue_growth_%", "gross_profit", "operating_income", "net_income", "net_income_growth_%", "eps", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_fin.columns]
+                st.write(f"Historical Annual Financial Statements ({unit_suffix}):")
                 st.dataframe(df_fin[display_cols], use_container_width=True)
 
                 cagr = financial_repository.calculate_historical_cagr(selected_cid, "revenue", period_type="Annual")
@@ -161,8 +213,8 @@ if company_rows:
                         x="period_label" if "period_label" in df_fin.columns else "fiscal_year",
                         y=["revenue", "net_income", "free_cash_flow"],
                         barmode="group",
-                        title="Annual Revenue, Net Income & Free Cash Flow Trend",
-                        labels={"value": "Amount ($M)", "period_label": "Fiscal Period", "variable": "Metric"},
+                        title=f"Annual Revenue, Net Income & Free Cash Flow Trend ({unit_suffix})",
+                        labels={"value": f"Amount ({unit_suffix})", "period_label": "Fiscal Period", "variable": "Metric"},
                     )
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as err:
@@ -173,7 +225,7 @@ if company_rows:
         with tab_quarterly:
             q_records = financial_repository.get_by_company(selected_cid, period_type="Quarterly")
             if q_records:
-                df_q = pd.DataFrame(q_records)
+                df_q = prepare_display_df(q_records)
                 if "period_label" not in df_q.columns and "fiscal_year" in df_q.columns:
                     df_q["period_label"] = df_q.apply(lambda r: f"{r.get('fiscal_year', '')} Q{r.get('fiscal_quarter', '')}", axis=1)
 
@@ -181,8 +233,8 @@ if company_rows:
                     if col_name not in df_q.columns:
                         df_q[col_name] = 0.0
 
-                display_cols_q = [c for c in ["period_label", "fiscal_year", "fiscal_quarter", "revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow", "capex", "cash", "debt"] if c in df_q.columns]
-                st.write("Historical Quarterly Financial Statements ($ in Millions):")
+                display_cols_q = [c for c in ["period_label", "fiscal_year", "fiscal_quarter", "revenue", "revenue_growth_%", "gross_profit", "operating_income", "net_income", "net_income_growth_%", "eps", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_q.columns]
+                st.write(f"Historical Quarterly Financial Statements ({unit_suffix}):")
                 st.dataframe(df_q[display_cols_q], use_container_width=True)
 
                 try:
@@ -191,8 +243,8 @@ if company_rows:
                         x="period_label" if "period_label" in df_q.columns else "fiscal_year",
                         y=["revenue", "net_income", "free_cash_flow"],
                         barmode="group",
-                        title="Quarterly Revenue, Net Income & Free Cash Flow Trend",
-                        labels={"value": "Amount ($M)", "period_label": "Fiscal Quarter", "variable": "Metric"},
+                        title=f"Quarterly Revenue, Net Income & Free Cash Flow Trend ({unit_suffix})",
+                        labels={"value": f"Amount ({unit_suffix})", "period_label": "Fiscal Quarter", "variable": "Metric"},
                     )
                     st.plotly_chart(fig_q, use_container_width=True)
                 except Exception as err:
@@ -200,27 +252,137 @@ if company_rows:
             else:
                 st.info("No quarterly financial statement records entered for this company yet.")
 
-
         with tab_ttm:
             ttm_data = financial_repository.calculate_ttm(selected_cid)
             if ttm_data:
                 st.subheader(f"Trailing Twelve Months (TTM) — {ttm_data.get('period_label')}")
+                scaled_ttm = dict(ttm_data)
+                for m_col in monetary_cols:
+                    if m_col in scaled_ttm:
+                        scaled_ttm[m_col] = round(scaled_ttm[m_col] * scale_factor, 2)
+
                 m1, m2, m3, m4 = st.columns(4)
                 with m1:
-                    st.metric("TTM Revenue", f"${ttm_data['revenue']:,.2f} M")
+                    st.metric("TTM Revenue", f"{scaled_ttm['revenue']:,.2f} {unit_suffix}")
                 with m2:
-                    st.metric("TTM Net Income", f"${ttm_data['net_income']:,.2f} M")
+                    st.metric("TTM Net Income", f"{scaled_ttm['net_income']:,.2f} {unit_suffix}")
                 with m3:
-                    st.metric("TTM Free Cash Flow", f"${ttm_data['free_cash_flow']:,.2f} M")
+                    st.metric("TTM Free Cash Flow", f"{scaled_ttm['free_cash_flow']:,.2f} {unit_suffix}")
                 with m4:
                     fcf_m = (ttm_data['free_cash_flow'] / ttm_data['revenue'] * 100) if ttm_data['revenue'] > 0 else 0.0
                     st.metric("TTM FCF Margin", f"{fcf_m:.2f}%")
 
-                df_ttm = pd.DataFrame([ttm_data])
+                df_ttm = pd.DataFrame([scaled_ttm])
                 display_ttm_cols = [c for c in ["period_label", "revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow", "capex", "cash", "debt"] if c in df_ttm.columns]
                 st.table(df_ttm[display_ttm_cols])
             else:
                 st.info("Insufficient financial data to calculate TTM metrics.")
+
+        # Interactive Custom Metric CAGR & Growth Analyzer Widget
+        st.divider()
+        with st.expander("📈 Custom Metric CAGR & Growth Rate Analyzer", expanded=True):
+            st.markdown("Analyze CAGR % and Period-over-Period growth for any financial metric.")
+            metric_options = {
+                "Revenue": "revenue",
+                "Gross Profit": "gross_profit",
+                "Operating Income": "operating_income",
+                "Net Income": "net_income",
+                "Free Cash Flow": "free_cash_flow",
+                "Diluted EPS": "eps",
+                "Capital Expenditures (CaPex)": "capex",
+                "Research & Development (R&D)": "rnd",
+                "Stock-Based Comp (SBC)": "sbc",
+                "Cash & Equivalents": "cash",
+                "Total Debt": "debt",
+            }
+            
+            an_col1, an_col2 = st.columns(2)
+            with an_col1:
+                selected_metric_name = st.selectbox("Select Metric to Analyze", list(metric_options.keys()), key="analyzer_metric_sel")
+                selected_metric_key = metric_options[selected_metric_name]
+            with an_col2:
+                selected_period_type = st.radio("Period Type", ["Annual", "Quarterly"], horizontal=True, key="analyzer_period_type")
+
+            analyzer_records = financial_repository.get_by_company(selected_cid, period_type=selected_period_type)
+            if len(analyzer_records) >= 2:
+                labels = [r["period_label"] for r in analyzer_records]
+                p_col1, p_col2 = st.columns(2)
+                with p_col1:
+                    start_p = st.selectbox("Start Period", labels, index=0, key="analyzer_start_p")
+                with p_col2:
+                    end_p = st.selectbox("End Period", labels, index=len(labels) - 1, key="analyzer_end_p")
+
+                start_idx = labels.index(start_p)
+                end_idx = labels.index(end_p)
+
+                if start_idx >= end_idx:
+                    st.warning("Start period must come before end period to calculate CAGR.")
+                else:
+                    start_rec = analyzer_records[start_idx]
+                    end_rec = analyzer_records[end_idx]
+
+                    s_val_raw = float(start_rec.get(selected_metric_key, 0.0) or 0.0)
+                    e_val_raw = float(end_rec.get(selected_metric_key, 0.0) or 0.0)
+
+                    is_per_share = (selected_metric_key == "eps")
+                    unit_label_str = "$" if is_per_share else unit_suffix
+                    val_factor = 1.0 if is_per_share else scale_factor
+
+                    s_val_disp = round(s_val_raw * val_factor, 2)
+                    e_val_disp = round(e_val_raw * val_factor, 2)
+
+                    years_diff = end_rec["fiscal_year"] - start_rec["fiscal_year"]
+                    if selected_period_type == "Quarterly":
+                        quarters_count = (end_idx - start_idx)
+                        years_span = max(quarters_count / 4.0, 0.25)
+                    else:
+                        years_span = max(years_diff, 1)
+
+                    # Calculations
+                    if s_val_raw > 0 and e_val_raw > 0 and years_span > 0:
+                        calc_cagr = (((e_val_raw / s_val_raw) ** (1.0 / years_span)) - 1.0) * 100.0
+                        cagr_str = f"{calc_cagr:.2f}%"
+                    else:
+                        cagr_str = "N/A"
+
+                    tot_growth = (((e_val_raw - s_val_raw) / abs(s_val_raw)) * 100.0) if s_val_raw != 0 else 0.0
+
+                    m_card1, m_card2, m_card3, m_card4 = st.columns(4)
+                    with m_card1:
+                        st.metric(f"Start Value ({start_p})", f"{s_val_disp:,.2f} {unit_label_str}")
+                    with m_card2:
+                        st.metric(f"End Value ({end_p})", f"{e_val_disp:,.2f} {unit_label_str}")
+                    with m_card3:
+                        st.metric("Total Period Growth", f"{tot_growth:+.2f}%")
+                    with m_card4:
+                        st.metric(f"Compound Growth (CAGR)", cagr_str)
+
+                    # Trend Chart for Selected Metric
+                    df_analyzer_slice = pd.DataFrame(analyzer_records[start_idx : end_idx + 1])
+                    df_analyzer_slice["metric_val_disp"] = df_analyzer_slice[selected_metric_key].apply(lambda v: round(float(v or 0.0) * val_factor, 2))
+                    df_analyzer_slice["pct_change_%"] = (df_analyzer_slice["metric_val_disp"].pct_change() * 100.0).round(2)
+
+                    fig_an = px.bar(
+                        df_analyzer_slice,
+                        x="period_label",
+                        y="metric_val_disp",
+                        title=f"{selected_metric_name} Trend ({start_p} to {end_p}) in {unit_label_str}",
+                        labels={"metric_val_disp": f"{selected_metric_name} ({unit_label_str})", "period_label": "Period"},
+                        text_auto=".2f",
+                    )
+                    st.plotly_chart(fig_an, use_container_width=True)
+
+                    st.markdown(f"**Period Breakdown Table for {selected_metric_name}:**")
+                    display_slice_cols = [c for c in ["period_label", "metric_val_disp", "pct_change_%"] if c in df_analyzer_slice.columns]
+                    st.dataframe(
+                        df_analyzer_slice[display_slice_cols].rename(
+                            columns={"metric_val_disp": f"{selected_metric_name} ({unit_label_str})", "pct_change_%": "Period Growth %"}
+                        ),
+                        use_container_width=True,
+                    )
+            else:
+                st.info(f"Add at least 2 {selected_period_type.lower()} records to use the CAGR & Growth Analyzer.")
+
 
         with st.expander("📝 Add / Update Financial Record"):
             with st.form("financial_form"):

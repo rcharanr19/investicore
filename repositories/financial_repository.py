@@ -165,15 +165,28 @@ class FinancialRepository:
             return res
         return None
 
-    def calculate_historical_cagr(self, company_id: str, metric: str = "revenue", period_type: str = "Annual") -> float | None:
+    def calculate_historical_cagr(
+        self,
+        company_id: str,
+        metric: str = "revenue",
+        period_type: str = "Annual",
+        start_year: int | None = None,
+        end_year: int | None = None,
+    ) -> float | None:
         records = self.get_by_company(company_id, period_type=period_type)
+        if start_year is not None:
+            records = [r for r in records if r.get("fiscal_year", 0) >= start_year]
+        if end_year is not None:
+            records = [r for r in records if r.get("fiscal_year", 0) <= end_year]
+
         if len(records) < 2:
             return None
-        first = records[0].get(metric, 0.0)
-        last = records[-1].get(metric, 0.0)
+        first = float(records[0].get(metric, 0.0) or 0.0)
+        last = float(records[-1].get(metric, 0.0) or 0.0)
         years = records[-1]["fiscal_year"] - records[0]["fiscal_year"]
-        if first <= 0 or years <= 0:
+        if first <= 0 or last <= 0 or years <= 0:
             return None
-        return (((last / first) ** (1 / years)) - 1) * 100
+        return (((last / first) ** (1 / years)) - 1) * 100.0
+
 
 

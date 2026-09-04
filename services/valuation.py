@@ -10,7 +10,17 @@ def calculate_cagr(start_value: float, end_value: float, years: int) -> float:
         return 0.0
 
 
+def calculate_percentage_change(start_value: float, end_value: float) -> float | None:
+    if start_value == 0:
+        return None
+    try:
+        return ((end_value - start_value) / abs(start_value)) * 100.0
+    except Exception:
+        return None
+
+
 def calculate_future_revenue(current_revenue: float, cagr: float, years: int) -> float:
+
     return current_revenue * ((1 + cagr) ** years)
 
 
