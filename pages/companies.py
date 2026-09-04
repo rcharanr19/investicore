@@ -140,6 +140,13 @@ if company_rows:
             fin_records = financial_repository.get_by_company(selected_cid, period_type="Annual")
             if fin_records:
                 df_fin = pd.DataFrame(fin_records)
+                if "period_label" not in df_fin.columns and "fiscal_year" in df_fin.columns:
+                    df_fin["period_label"] = df_fin["fiscal_year"].apply(lambda y: f"FY{y}")
+                
+                for col_name in ["revenue", "net_income", "free_cash_flow"]:
+                    if col_name not in df_fin.columns:
+                        df_fin[col_name] = 0.0
+
                 display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow", "capex", "cash", "debt"] if c in df_fin.columns]
                 st.write("Historical Annual Financial Statements ($ in Millions):")
                 st.dataframe(df_fin[display_cols], use_container_width=True)
@@ -148,15 +155,18 @@ if company_rows:
                 if cagr is not None:
                     st.info(f"Historical Annual Revenue CAGR: **{cagr:.2f}%** across {len(fin_records)} recorded fiscal years.")
 
-                fig = px.bar(
-                    df_fin,
-                    x="period_label",
-                    y=["revenue", "net_income", "free_cash_flow"],
-                    barmode="group",
-                    title="Annual Revenue, Net Income & Free Cash Flow Trend",
-                    labels={"value": "Amount ($M)", "period_label": "Fiscal Period", "variable": "Metric"},
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                try:
+                    fig = px.bar(
+                        df_fin,
+                        x="period_label" if "period_label" in df_fin.columns else "fiscal_year",
+                        y=["revenue", "net_income", "free_cash_flow"],
+                        barmode="group",
+                        title="Annual Revenue, Net Income & Free Cash Flow Trend",
+                        labels={"value": "Amount ($M)", "period_label": "Fiscal Period", "variable": "Metric"},
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as err:
+                    st.warning(f"Could not render annual trend chart: {err}")
             else:
                 st.info("No annual financial statement records entered for this company yet.")
 
@@ -164,21 +174,32 @@ if company_rows:
             q_records = financial_repository.get_by_company(selected_cid, period_type="Quarterly")
             if q_records:
                 df_q = pd.DataFrame(q_records)
+                if "period_label" not in df_q.columns and "fiscal_year" in df_q.columns:
+                    df_q["period_label"] = df_q.apply(lambda r: f"{r.get('fiscal_year', '')} Q{r.get('fiscal_quarter', '')}", axis=1)
+
+                for col_name in ["revenue", "net_income", "free_cash_flow"]:
+                    if col_name not in df_q.columns:
+                        df_q[col_name] = 0.0
+
                 display_cols_q = [c for c in ["period_label", "fiscal_year", "fiscal_quarter", "revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow", "capex", "cash", "debt"] if c in df_q.columns]
                 st.write("Historical Quarterly Financial Statements ($ in Millions):")
                 st.dataframe(df_q[display_cols_q], use_container_width=True)
 
-                fig_q = px.bar(
-                    df_q,
-                    x="period_label",
-                    y=["revenue", "net_income", "free_cash_flow"],
-                    barmode="group",
-                    title="Quarterly Revenue, Net Income & Free Cash Flow Trend",
-                    labels={"value": "Amount ($M)", "period_label": "Fiscal Quarter", "variable": "Metric"},
-                )
-                st.plotly_chart(fig_q, use_container_width=True)
+                try:
+                    fig_q = px.bar(
+                        df_q,
+                        x="period_label" if "period_label" in df_q.columns else "fiscal_year",
+                        y=["revenue", "net_income", "free_cash_flow"],
+                        barmode="group",
+                        title="Quarterly Revenue, Net Income & Free Cash Flow Trend",
+                        labels={"value": "Amount ($M)", "period_label": "Fiscal Quarter", "variable": "Metric"},
+                    )
+                    st.plotly_chart(fig_q, use_container_width=True)
+                except Exception as err:
+                    st.warning(f"Could not render quarterly trend chart: {err}")
             else:
                 st.info("No quarterly financial statement records entered for this company yet.")
+
 
         with tab_ttm:
             ttm_data = financial_repository.calculate_ttm(selected_cid)

@@ -97,6 +97,14 @@ class FinancialRepository:
                 res = query.order("fiscal_year").execute()
                 if res and res.data is not None:
                     for rec in res.data:
+                        if not rec.get("period_type"):
+                            rec["period_type"] = "Annual"
+                        if not rec.get("period_label"):
+                            pt = rec.get("period_type", "Annual")
+                            fq = rec.get("fiscal_quarter")
+                            fy = rec.get("fiscal_year", "")
+                            rec["period_label"] = f"{fy} Q{fq}" if pt == "Quarterly" and fq else f"FY{fy}"
+
                         pt = rec.get("period_type", "Annual")
                         fq = rec.get("fiscal_quarter") or 0
                         k = f"{company_id}_{rec['fiscal_year']}_{pt}_{fq}"
@@ -108,7 +116,14 @@ class FinancialRepository:
         records = [rec for rec in self._store.values() if rec["company_id"] == company_id]
         if period_type:
             records = [rec for rec in records if rec.get("period_type", "Annual") == period_type]
+        for rec in records:
+            if not rec.get("period_label"):
+                pt = rec.get("period_type", "Annual")
+                fq = rec.get("fiscal_quarter")
+                fy = rec.get("fiscal_year", "")
+                rec["period_label"] = f"{fy} Q{fq}" if pt == "Quarterly" and fq else f"FY{fy}"
         return sorted(records, key=lambda x: (x.get("fiscal_year", 0), x.get("fiscal_quarter") or 0))
+
 
     def get_latest(self, company_id: str, period_type: str | None = None) -> dict[str, Any] | None:
         records = self.get_by_company(company_id, period_type=period_type)
