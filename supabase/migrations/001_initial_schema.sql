@@ -1,5 +1,8 @@
+-- Enable UUID generation extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 CREATE TABLE IF NOT EXISTS companies (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ticker TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     sector TEXT,
@@ -7,7 +10,7 @@ CREATE TABLE IF NOT EXISTS companies (
     country TEXT,
     description TEXT,
     website TEXT,
-    status TEXT NOT NULL CHECK (status IN ('Researching', 'Watchlist', 'Owned', 'Buy Candidate', 'Avoid', 'Sold', 'Archived')),
+    status TEXT NOT NULL DEFAULT 'Watchlist' CHECK (status IN ('Researching', 'Watchlist', 'Owned', 'Buy Candidate', 'Avoid', 'Sold', 'Archived')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

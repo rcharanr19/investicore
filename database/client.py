@@ -4,6 +4,10 @@ import os
 
 from dotenv import load_dotenv
 
+# Ensure SSL certificate bundle is configured for httpx / requests in corporate environments
+if "REQUESTS_CA_BUNDLE" in os.environ and "SSL_CERT_FILE" not in os.environ:
+    os.environ["SSL_CERT_FILE"] = os.environ["REQUESTS_CA_BUNDLE"]
+
 try:
     from supabase import Client, create_client
 except Exception:  # pragma: no cover - optional dependency fallback
@@ -23,5 +27,5 @@ def get_supabase_client():
 
 
 def ensure_database() -> None:
-    """No-op when credentials are absent; local V1 runs in in-memory mode."""
+    """No-op when credentials are absent or database is managed via Supabase client."""
     return None
