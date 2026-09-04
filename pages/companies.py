@@ -123,24 +123,7 @@ if company_rows:
             with c_head1:
                 st.caption(f"Sector: **{current_comp.get('sector', 'N/A')}** | Industry: **{current_comp.get('industry', 'N/A')}** | Website: {current_comp.get('website', 'N/A')}")
             with c_head2:
-                if st.button("⚡ Refresh from Yahoo Finance", use_container_width=True):
-                    with st.spinner(f"Refreshing financials for {current_comp['ticker']}..."):
-                        hist = fetch_financial_history(current_comp['ticker'])
-                        for rec in hist.get("annual", []):
-                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Annual", fiscal_quarter=None)
-                        for rec in hist.get("quarterly", []):
-                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Quarterly", fiscal_quarter=rec.get("fiscal_quarter"))
-                        st.success(f"Refreshed financials for {current_comp['ticker']}!")
-                        st.rerun()
-
-    if selected_cid:
-        current_comp = next((c for c in company_rows if c["id"] == selected_cid), None)
-        if current_comp:
-            c_head1, c_head2 = st.columns([3, 1])
-            with c_head1:
-                st.caption(f"Sector: **{current_comp.get('sector', 'N/A')}** | Industry: **{current_comp.get('industry', 'N/A')}** | Website: {current_comp.get('website', 'N/A')}")
-            with c_head2:
-                if st.button("⚡ Refresh from Yahoo Finance", use_container_width=True):
+                if st.button("⚡ Refresh from Yahoo Finance", key=f"refresh_btn_{selected_cid}", use_container_width=True):
                     with st.spinner(f"Refreshing financials for {current_comp['ticker']}..."):
                         hist = fetch_financial_history(current_comp['ticker'])
                         for rec in hist.get("annual", []):
