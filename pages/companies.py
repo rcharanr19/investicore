@@ -7,7 +7,70 @@ from database.store import add_company, company_repository, financial_repository
 st.title("Company Records")
 st.caption("Add, search, and track the companies you are researching")
 
-with st.expander("➕ Add New Company", expanded=False):
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
+from database.store import add_company, company_repository, financial_repository
+from services.financial_fetcher import fetch_company_profile, fetch_financial_history
+
+st.title("Company Records")
+st.caption("Add, search, and track the companies you are researching")
+
+with st.expander("⚡ Auto-Fetch New Company & Financial Statements by Ticker", expanded=True):
+    st.markdown("Enter a ticker symbol (e.g. `AAPL`, `MSFT`, `NVDA`, `AMZN`, `GOOGL`) to automatically fetch company profile metadata, market metrics, and historical financial statements.")
+    col_auto1, col_auto2 = st.columns([3, 1])
+    with col_auto1:
+        auto_ticker = st.text_input("Stock Ticker Symbol", placeholder="e.g. NVDA", key="auto_ticker_input")
+    with col_auto2:
+        st.write("")
+        st.write("")
+        fetch_btn = st.button("⚡ Fetch & Save", type="primary", use_container_width=True)
+
+    if fetch_btn:
+        if not auto_ticker.strip():
+            st.warning("Please enter a stock ticker symbol.")
+        else:
+            with st.spinner(f"Fetching profile and financial statements for {auto_ticker.upper()}..."):
+                prof = fetch_company_profile(auto_ticker)
+                if not prof:
+                    st.error(f"Could not fetch company profile for '{auto_ticker.upper()}'. Please verify ticker symbol.")
+                else:
+                    existing = company_repository.get_by_ticker(prof["ticker"])
+                    if existing:
+                        comp_rec = company_repository.update(existing["id"], prof)
+                        st.info(f"Updated existing record for {prof['name']} ({prof['ticker']}).")
+                    else:
+                        comp_rec = add_company(prof)
+                        st.success(f"Created new company record for {prof['name']} ({prof['ticker']})!")
+
+                    cid = comp_rec["id"]
+                    hist = fetch_financial_history(prof["ticker"])
+                    ann_count = len(hist.get("annual", []))
+                    q_count = len(hist.get("quarterly", []))
+
+                    for rec in hist.get("annual", []):
+                        financial_repository.create_or_update(
+                            cid,
+                            rec["fiscal_year"],
+                            rec,
+                            period_type="Annual",
+                            fiscal_quarter=None,
+                        )
+
+                    for rec in hist.get("quarterly", []):
+                        financial_repository.create_or_update(
+                            cid,
+                            rec["fiscal_year"],
+                            rec,
+                            period_type="Quarterly",
+                            fiscal_quarter=rec.get("fiscal_quarter"),
+                        )
+
+                    st.success(f"✅ Auto-fetched {ann_count} Annual Statements and {q_count} Quarterly Statements for {prof['name']}!")
+                    st.rerun()
+
+with st.expander("📝 Manual Add / Edit Company Profile", expanded=False):
     with st.form("company_form"):
         col1, col2 = st.columns(2)
         with col1:
@@ -54,7 +117,24 @@ if company_rows:
     )
 
     if selected_cid:
+        current_comp = next((c for c in company_rows if c["id"] == selected_cid), None)
+        if current_comp:
+            c_head1, c_head2 = st.columns([3, 1])
+            with c_head1:
+                st.caption(f"Sector: **{current_comp.get('sector', 'N/A')}** | Industry: **{current_comp.get('industry', 'N/A')}** | Website: {current_comp.get('website', 'N/A')}")
+            with c_head2:
+                if st.button("⚡ Refresh from Yahoo Finance", use_container_width=True):
+                    with st.spinner(f"Refreshing financials for {current_comp['ticker']}..."):
+                        hist = fetch_financial_history(current_comp['ticker'])
+                        for rec in hist.get("annual", []):
+                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Annual", fiscal_quarter=None)
+                        for rec in hist.get("quarterly", []):
+                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Quarterly", fiscal_quarter=rec.get("fiscal_quarter"))
+                        st.success(f"Refreshed financials for {current_comp['ticker']}!")
+                        st.rerun()
+
         tab_annual, tab_quarterly, tab_ttm = st.tabs(["📅 Annual Statements", "📆 Quarterly Statements", "📊 TTM Summary"])
+
 
         with tab_annual:
             fin_records = financial_repository.get_by_company(selected_cid, period_type="Annual")
