@@ -136,7 +136,12 @@ def _parse_statements(
         cash = _get_val(balance_df, ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents", "Cash Financial"], col)
         debt = _get_val(balance_df, ["Total Debt", "Net Debt", "Long Term Debt"], col)
 
+        # Skip empty statement columns (where all primary financial lines are zero or missing)
+        if rev == 0.0 and gp == 0.0 and op_inc == 0.0 and net_inc == 0.0 and fcf == 0.0 and ocf == 0.0:
+            continue
+
         period_label = f"{fiscal_year} Q{fiscal_quarter}" if period_type == "Quarterly" else f"FY{fiscal_year}"
+
 
         rec = {
             "fiscal_year": fiscal_year,

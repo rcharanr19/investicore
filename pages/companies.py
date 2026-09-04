@@ -359,7 +359,11 @@ if company_rows:
                     else:
                         cagr_str = "N/A"
 
-                    tot_growth = (((e_val_raw - s_val_raw) / abs(s_val_raw)) * 100.0) if s_val_raw != 0 else 0.0
+                    if s_val_raw != 0:
+                        tot_growth_val = (((e_val_raw - s_val_raw) / abs(s_val_raw)) * 100.0)
+                        tot_growth_str = f"{tot_growth_val:+.2f}%"
+                    else:
+                        tot_growth_str = "N/A"
 
                     m_card1, m_card2, m_card3, m_card4 = st.columns(4)
                     with m_card1:
@@ -367,9 +371,13 @@ if company_rows:
                     with m_card2:
                         st.metric(f"End Value ({end_p})", f"{e_val_disp:,.2f} {unit_label_str}")
                     with m_card3:
-                        st.metric("Total Period Growth", f"{tot_growth:+.2f}%")
+                        st.metric("Total Period Growth", tot_growth_str)
                     with m_card4:
                         st.metric(f"Compound Growth (CAGR)", cagr_str)
+
+                    if s_val_raw <= 0:
+                        st.caption("ℹ️ Note: Compound Growth (CAGR) and Total Growth % require a positive starting value (> 0).")
+
 
                     # Trend Chart for Selected Metric
                     df_analyzer_slice = pd.DataFrame(analyzer_records[start_idx : end_idx + 1])
