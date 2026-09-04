@@ -43,6 +43,7 @@ class FinancialRepository:
             "operating_income": float(data.get("operating_income", 0.0)),
             "net_income": float(data.get("net_income", 0.0)),
             "eps": float(data.get("eps", 0.0)),
+            "operating_cash_flow": float(data.get("operating_cash_flow", 0.0)),
             "free_cash_flow": float(data.get("free_cash_flow", 0.0)),
             "capex": float(data.get("capex", 0.0)),
             "rnd": float(data.get("rnd", 0.0)),
@@ -75,6 +76,7 @@ class FinancialRepository:
             "operating_income": float(data.get("operating_income", 0.0)),
             "net_income": float(data.get("net_income", 0.0)),
             "eps": float(data.get("eps", 0.0)),
+            "operating_cash_flow": float(data.get("operating_cash_flow", 0.0)),
             "free_cash_flow": float(data.get("free_cash_flow", 0.0)),
             "capex": float(data.get("capex", 0.0)),
             "rnd": float(data.get("rnd", 0.0)),
@@ -84,6 +86,7 @@ class FinancialRepository:
             "shares_outstanding": float(data.get("shares_outstanding", 1.0)),
             "updated_at": data.get("updated_at", "2026-09-04T00:00:00Z"),
         }
+
         self._store[key] = record
         return record
 
@@ -144,6 +147,7 @@ class FinancialRepository:
                 "operating_income": sum(q.get("operating_income", 0.0) for q in last_4),
                 "net_income": sum(q.get("net_income", 0.0) for q in last_4),
                 "eps": sum(q.get("eps", 0.0) for q in last_4),
+                "operating_cash_flow": sum(q.get("operating_cash_flow", 0.0) for q in last_4),
                 "free_cash_flow": sum(q.get("free_cash_flow", 0.0) for q in last_4),
                 "capex": sum(q.get("capex", 0.0) for q in last_4),
                 "rnd": sum(q.get("rnd", 0.0) for q in last_4),
@@ -153,6 +157,7 @@ class FinancialRepository:
                 "debt": latest_q.get("debt", 0.0),
                 "shares_outstanding": latest_q.get("shares_outstanding", 1.0),
             }
+
 
         # Fallback to latest Annual record if fewer than 4 quarters
         annual = self.get_latest(company_id, period_type="Annual")

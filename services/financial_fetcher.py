@@ -124,8 +124,12 @@ def _parse_statements(
         if eps == 0.0 and net_inc != 0 and shares > 0:
             eps = round(net_inc / shares, 2)
 
+        ocf = _get_val(cashflow_df, ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities", "Total Cash From Operating Activities"], col)
         fcf = _get_val(cashflow_df, ["Free Cash Flow"], col)
         capex = abs(_get_val(cashflow_df, ["Capital Expenditure", "Capital Expenditures"], col))
+        if fcf == 0.0 and ocf != 0.0:
+            fcf = ocf - capex
+
         rnd = _get_val(income_df, ["Research And Development"], col)
         sbc = _get_val(cashflow_df, ["Stock Based Compensation"], col)
 
@@ -144,6 +148,7 @@ def _parse_statements(
             "operating_income": op_inc,
             "net_income": net_inc,
             "eps": eps,
+            "operating_cash_flow": ocf,
             "free_cash_flow": fcf,
             "capex": capex,
             "rnd": rnd,
@@ -153,6 +158,7 @@ def _parse_statements(
             "shares_outstanding": shares,
         }
         records.append(rec)
+
 
     # Sort chronological
     return sorted(records, key=lambda x: (x["fiscal_year"], x.get("fiscal_quarter") or 0))

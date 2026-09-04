@@ -152,7 +152,7 @@ if company_rows:
             "Thousands ($K)": (1000.0, "$K"),
         }
         scale_factor, unit_suffix = unit_scale_map[unit_choice]
-        monetary_cols = ["revenue", "gross_profit", "operating_income", "net_income", "free_cash_flow", "capex", "rnd", "sbc", "cash", "debt"]
+        monetary_cols = ["revenue", "gross_profit", "operating_income", "net_income", "operating_cash_flow", "free_cash_flow", "capex", "rnd", "sbc", "cash", "debt"]
 
         def prepare_display_df(records_list: list[dict]):
             if not records_list:
@@ -163,7 +163,7 @@ if company_rows:
                     df[m_col] = (df[m_col] * scale_factor).round(2)
 
             if show_growth:
-                for g_col in ["revenue", "gross_profit", "operating_income", "net_income", "eps", "free_cash_flow"]:
+                for g_col in ["revenue", "gross_profit", "operating_income", "net_income", "eps", "operating_cash_flow", "free_cash_flow"]:
                     if g_col in df.columns:
                         pct = df[g_col].pct_change() * 100.0
                         df[f"{g_col}_growth_%"] = pct.round(2)
@@ -178,11 +178,12 @@ if company_rows:
                 if "period_label" not in df_fin.columns and "fiscal_year" in df_fin.columns:
                     df_fin["period_label"] = df_fin["fiscal_year"].apply(lambda y: f"FY{y}")
                 
-                for col_name in ["revenue", "net_income", "free_cash_flow"]:
+                for col_name in ["revenue", "net_income", "operating_cash_flow", "free_cash_flow"]:
                     if col_name not in df_fin.columns:
                         df_fin[col_name] = 0.0
 
-                display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "revenue_growth_%", "gross_profit", "gross_profit_growth_%", "operating_income", "operating_income_growth_%", "net_income", "net_income_growth_%", "eps", "eps_growth_%", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_fin.columns]
+                display_cols = [c for c in ["period_label", "fiscal_year", "revenue", "revenue_growth_%", "gross_profit", "gross_profit_growth_%", "operating_income", "operating_income_growth_%", "net_income", "net_income_growth_%", "eps", "eps_growth_%", "operating_cash_flow", "operating_cash_flow_growth_%", "free_cash_flow", "free_cash_flow_growth_%", "capex", "cash", "debt"] if c in df_fin.columns]
+
                 st.write(f"Historical Annual Financial Statements ({unit_suffix}):")
                 st.dataframe(df_fin[display_cols], use_container_width=True)
 
@@ -412,9 +413,10 @@ if company_rows:
                     rev = st.number_input("Revenue ($M)", value=0.0, step=100.0)
                     gp = st.number_input("Gross Profit ($M)", value=0.0, step=100.0)
                     op_inc = st.number_input("Operating Income ($M)", value=0.0, step=100.0)
-                with f_col2:
                     net_inc = st.number_input("Net Income ($M)", value=0.0, step=100.0)
+                with f_col2:
                     eps_val = st.number_input("EPS ($)", value=0.0, step=0.1)
+                    ocf_val = st.number_input("Operating Cash Flow ($M)", value=0.0, step=100.0)
                     fcf_val = st.number_input("Free Cash Flow ($M)", value=0.0, step=100.0)
                     capex_val = st.number_input("CaPex ($M)", value=0.0, step=50.0)
                 with f_col3:
@@ -437,6 +439,19 @@ if company_rows:
                             "operating_income": op_inc,
                             "net_income": net_inc,
                             "eps": eps_val,
+                            "operating_cash_flow": ocf_val,
+                            "free_cash_flow": fcf_val,
+                            "capex": capex_val,
+                            "rnd": rnd_val,
+                            "sbc": sbc_val,
+                            "cash": cash_val,
+                            "debt": debt_val,
+                            "shares_outstanding": shares_val,
+                        },
+                        period_type=p_type_input,
+                        fiscal_quarter=fq if p_type_input == "Quarterly" else None,
+                    )
+
                             "free_cash_flow": fcf_val,
                             "capex": capex_val,
                             "rnd": rnd_val,

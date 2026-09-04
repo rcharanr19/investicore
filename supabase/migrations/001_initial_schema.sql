@@ -45,24 +45,27 @@ CREATE TABLE IF NOT EXISTS analysis_answers (
 );
 
 CREATE TABLE IF NOT EXISTS financials (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
     fiscal_year INTEGER NOT NULL,
-    revenue NUMERIC,
-    gross_profit NUMERIC,
-    operating_income NUMERIC,
-    net_income NUMERIC,
-    eps NUMERIC,
-    free_cash_flow NUMERIC,
-    capex NUMERIC,
-    rnd NUMERIC,
-    sbc NUMERIC,
-    cash NUMERIC,
-    debt NUMERIC,
-    shares_outstanding NUMERIC,
+    period_type TEXT NOT NULL DEFAULT 'Annual',
+    fiscal_quarter INTEGER,
+    period_label TEXT,
+    revenue NUMERIC DEFAULT 0.0,
+    gross_profit NUMERIC DEFAULT 0.0,
+    operating_income NUMERIC DEFAULT 0.0,
+    net_income NUMERIC DEFAULT 0.0,
+    eps NUMERIC DEFAULT 0.0,
+    operating_cash_flow NUMERIC DEFAULT 0.0,
+    free_cash_flow NUMERIC DEFAULT 0.0,
+    capex NUMERIC DEFAULT 0.0,
+    rnd NUMERIC DEFAULT 0.0,
+    sbc NUMERIC DEFAULT 0.0,
+    cash NUMERIC DEFAULT 0.0,
+    debt NUMERIC DEFAULT 0.0,
+    shares_outstanding NUMERIC DEFAULT 1.0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(company_id, fiscal_year)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS growth_drivers (

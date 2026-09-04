@@ -24,9 +24,9 @@ def test_parse_statements():
     )
     cashflow_df = pd.DataFrame(
         {
-            "2025-09-30": [110_000_000.0, -30_000_000.0],
+            "2025-09-30": [140_000_000.0, 110_000_000.0, -30_000_000.0],
         },
-        index=["Free Cash Flow", "Capital Expenditure"],
+        index=["Operating Cash Flow", "Free Cash Flow", "Capital Expenditure"],
     )
     balance_df = pd.DataFrame(
         {
@@ -45,10 +45,12 @@ def test_parse_statements():
     assert rec["operating_income"] == 150.0
     assert rec["net_income"] == 120.0
     assert rec["eps"] == 4.5
+    assert rec["operating_cash_flow"] == 140.0
     assert rec["free_cash_flow"] == 110.0
     assert rec["capex"] == 30.0
     assert rec["cash"] == 50.0
     assert rec["debt"] == 20.0
+
 
 
 @patch("yfinance.Ticker")
