@@ -99,11 +99,13 @@ else:
     st.success("✅ Probability distribution validated (100% total).")
 
     if st.button("💾 Save Valuation Scenarios"):
-        scenario_repository.save_scenarios(selected_aid, scenarios_input)
-        st.success("Saved scenario configuration to analysis!")
+        try:
+            scenario_repository.save_scenarios(selected_aid, scenarios_input)
+            st.success("Saved scenario configuration to analysis!")
+        except Exception as err:
+            st.error(f"Error saving scenarios: {err}")
 
     # Calculate scenario outputs
-    scenario_repository.save_scenarios(selected_aid, scenarios_input)
     val_result = scenario_repository.calculate_scenario_outputs(
         selected_aid,
         current_revenue=current_revenue,
@@ -112,6 +114,7 @@ else:
         debt=debt,
         shares_outstanding=shares_outstanding,
     )
+
 
     st.divider()
     st.subheader("📈 Scenario Valuation Outputs")

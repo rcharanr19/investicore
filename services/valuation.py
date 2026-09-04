@@ -2,9 +2,12 @@ from __future__ import annotations
 
 
 def calculate_cagr(start_value: float, end_value: float, years: int) -> float:
-    if start_value <= 0 or years <= 0:
-        raise ValueError("start_value must be positive and years must be greater than zero.")
-    return (((end_value / start_value) ** (1 / years)) - 1) * 100
+    if start_value <= 0 or end_value <= 0 or years <= 0:
+        return 0.0
+    try:
+        return (((end_value / start_value) ** (1 / years)) - 1) * 100.0
+    except Exception:
+        return 0.0
 
 
 def calculate_future_revenue(current_revenue: float, cagr: float, years: int) -> float:
@@ -16,9 +19,13 @@ def calculate_future_fcf(future_revenue: float, fcf_margin: float) -> float:
 
 
 def calculate_expected_return(current_share_price: float, future_share_price: float, years: int) -> float:
-    if current_share_price <= 0 or years <= 0:
-        raise ValueError("current_share_price must be positive and years must be greater than zero.")
-    return (future_share_price / current_share_price) ** (1 / years) - 1
+    if current_share_price <= 0 or future_share_price <= 0 or years <= 0:
+        return 0.0
+    try:
+        return (future_share_price / current_share_price) ** (1 / years) - 1.0
+    except Exception:
+        return 0.0
+
 
 
 def calculate_valuation(

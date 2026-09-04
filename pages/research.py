@@ -33,6 +33,10 @@ analysis_id = st.selectbox(
     ),
 )
 analysis = analysis_repository.get_by_id(analysis_id)
+if not analysis:
+    st.error("Selected analysis record could not be loaded.")
+    st.stop()
+
 framework = load_framework()
 answers_bucket = st.session_state.setdefault("research_answers", {})
 analysis_key = f"analysis_{analysis_id}"
@@ -41,6 +45,7 @@ if analysis_key not in answers_bucket:
 answers = answers_bucket[analysis_key]
 
 st.subheader(f"{analysis.get('decision', 'Watch')} | Score {analysis.get('overall_score', 0)} | v{analysis.get('version_number', 1)}")
+
 
 for section in framework.get("sections", []):
     with st.expander(section["name"], expanded=True):
