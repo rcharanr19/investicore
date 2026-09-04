@@ -29,22 +29,31 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
 
 def get_supabase_client():
-    url = SUPABASE_URL
-    key = SUPABASE_KEY
+    url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
     # Fallback to Streamlit secrets if environment variables are not set (e.g. in deployed apps)
     if not url or not key:
         try:
             import streamlit as st
             if hasattr(st, "secrets"):
+                # 1. Top-level secrets lookup
                 url = url or st.secrets.get("SUPABASE_URL") or st.secrets.get("supabase_url")
                 key = key or st.secrets.get("SUPABASE_KEY") or st.secrets.get("supabase_key")
+
+                # 2. Nested secrets lookup if placed under [connections.postgresql] header
+                if not url or not key:
+                    conn_secrets = st.secrets.get("connections", {}).get("postgresql", {})
+                    if hasattr(conn_secrets, "get"):
+                        url = url or conn_secrets.get("SUPABASE_URL") or conn_secrets.get("supabase_url")
+                        key = key or conn_secrets.get("SUPABASE_KEY") or conn_secrets.get("supabase_key")
         except Exception:
             pass
 
     if not url or not key or create_client is None:
         return None
     return create_client(url, key)
+
 
 
 
