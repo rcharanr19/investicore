@@ -17,6 +17,7 @@ company_id = st.selectbox(
     "Company",
     [company["id"] for company in companies],
     format_func=lambda cid: next((f"{company['ticker']} - {company['name']}" for company in companies if company["id"] == cid), "Select company"),
+    key="research_company_id_select",
 )
 
 versions = analysis_repository.get_versions_for_company(company_id)
@@ -31,6 +32,7 @@ analysis_id = st.selectbox(
         (f"v{analysis.get('version_number', 1)} - {analysis.get('analysis_date', 'Unknown')}" for analysis in versions if analysis["id"] == aid),
         "Select analysis",
     ),
+    key="research_analysis_id_select",
 )
 analysis = analysis_repository.get_by_id(analysis_id)
 if not analysis:
@@ -54,29 +56,30 @@ for section in framework.get("sections", []):
             qtype = question["type"]
             label = question["question"]
             value = answers.get(qid)
+            w_key = f"q_{analysis_id}_{qid}"
 
             if qtype == "short_text":
-                new_value = st.text_input(label, value=value or "")
+                new_value = st.text_input(label, value=value or "", key=w_key)
             elif qtype == "long_text":
-                new_value = st.text_area(label, value=value or "")
+                new_value = st.text_area(label, value=value or "", key=w_key)
             elif qtype == "score":
                 scale = question.get("score_scale", [1, 10])
                 default = int(value) if value is not None else scale[0]
-                new_value = st.slider(label, min_value=scale[0], max_value=scale[1], value=default)
+                new_value = st.slider(label, min_value=scale[0], max_value=scale[1], value=default, key=w_key)
             elif qtype == "percentage":
-                new_value = st.number_input(label, value=float(value) if value is not None else 0.0, min_value=0.0, max_value=1000.0, step=0.1)
+                new_value = st.number_input(label, value=float(value) if value is not None else 0.0, min_value=0.0, max_value=1000.0, step=0.1, key=w_key)
             elif qtype == "number":
-                new_value = st.number_input(label, value=float(value) if value is not None else 0.0, step=0.1)
+                new_value = st.number_input(label, value=float(value) if value is not None else 0.0, step=0.1, key=w_key)
             elif qtype == "currency":
-                new_value = st.number_input(label, value=float(value) if value is not None else 0.0, step=1000000.0)
+                new_value = st.number_input(label, value=float(value) if value is not None else 0.0, step=1000000.0, key=w_key)
             elif qtype == "date":
-                new_value = st.date_input(label, value=value if value is not None else None)
+                new_value = st.date_input(label, value=value if value is not None else None, key=w_key)
             elif qtype == "select":
                 options = question.get("options", [])
                 index = options.index(value) if value in options else 0
-                new_value = st.selectbox(label, options, index=index)
+                new_value = st.selectbox(label, options, index=index, key=w_key)
             else:
-                new_value = st.text_input(label, value=value or "")
+                new_value = st.text_input(label, value=value or "", key=w_key)
 
             answers[qid] = new_value
 
