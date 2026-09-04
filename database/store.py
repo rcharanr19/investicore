@@ -3,13 +3,19 @@ from __future__ import annotations
 from repositories.analysis_repository import AnalysisRepository
 from repositories.company_repository import CompanyRepository
 from repositories.financial_repository import FinancialRepository
+from repositories.growth_driver_repository import GrowthDriverRepository
+from repositories.risk_repository import RiskRepository
 from repositories.scenario_repository import ScenarioRepository
+from repositories.thesis_breaker_repository import ThesisBreakerRepository
 from services.framework import load_framework
 
 company_repository = CompanyRepository()
 analysis_repository = AnalysisRepository()
 financial_repository = FinancialRepository()
 scenario_repository = ScenarioRepository()
+risk_repository = RiskRepository()
+thesis_breaker_repository = ThesisBreakerRepository()
+growth_driver_repository = GrowthDriverRepository()
 
 
 def seed_core_data() -> None:
@@ -96,10 +102,57 @@ def seed_core_data() -> None:
     })
 
     if analysis:
-        scenario_repository.save_scenarios(analysis["id"], {
+        aid = analysis["id"]
+        scenario_repository.save_scenarios(aid, {
             "Bear": {"probability": 25, "revenue_cagr": 0.05, "forecast_period": 5, "fcf_margin": 0.25, "terminal_multiple": 12.0},
             "Base": {"probability": 50, "revenue_cagr": 0.12, "forecast_period": 5, "fcf_margin": 0.30, "terminal_multiple": 16.0},
             "Bull": {"probability": 25, "revenue_cagr": 0.18, "forecast_period": 5, "fcf_margin": 0.35, "terminal_multiple": 20.0},
+        })
+
+        # Seed Risks
+        risk_repository.create_or_update(aid, {
+            "risk": "Ad spending slowdown from macroeconomic weakness",
+            "category": "Macroeconomic",
+            "probability": 40,
+            "impact": 6,
+            "mitigation": "Diversify ad formats and expand Reels monetization",
+            "status": "Active",
+        })
+        risk_repository.create_or_update(aid, {
+            "risk": "Regulatory fines or data privacy restrictions in EU",
+            "category": "Regulation",
+            "probability": 50,
+            "impact": 5,
+            "mitigation": "Paid ad-free tier offering in EU",
+            "status": "Active",
+        })
+
+        # Seed Thesis Breakers
+        thesis_breaker_repository.create_or_update(aid, {
+            "condition": "Family Daily Active People (DAP) declines Y/Y for 2 consecutive quarters",
+            "metric": "DAP Growth",
+            "operator": "<",
+            "threshold": 0.0,
+            "current_value": 5.0,
+            "current_status": "Not Triggered",
+        })
+        thesis_breaker_repository.create_or_update(aid, {
+            "condition": "Reality Labs operating loss exceeds $25B annually",
+            "metric": "RL Op Loss ($B)",
+            "operator": ">",
+            "threshold": 25.0,
+            "current_value": 16.0,
+            "current_status": "Not Triggered",
+        })
+
+        # Seed Growth Drivers
+        growth_driver_repository.create_or_update(company["id"], {
+            "name": "Family Daily Active People (DAP)",
+            "description": "Global active users across Facebook, IG, WhatsApp, Threads",
+            "unit": "Billions",
+            "current_value": 3.27,
+            "confidence": 85,
+            "notes": "Core engagement driver",
         })
 
 
