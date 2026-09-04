@@ -451,18 +451,6 @@ if company_rows:
                         period_type=p_type_input,
                         fiscal_quarter=fq if p_type_input == "Quarterly" else None,
                     )
-
-                            "free_cash_flow": fcf_val,
-                            "capex": capex_val,
-                            "rnd": rnd_val,
-                            "sbc": sbc_val,
-                            "cash": cash_val,
-                            "debt": debt_val,
-                            "shares_outstanding": shares_val,
-                        },
-                        period_type=p_type_input,
-                        fiscal_quarter=fq if p_type_input == "Quarterly" else None,
-                    )
                     label_str = f"{fy} Q{fq}" if p_type_input == "Quarterly" else f"FY{fy}"
                     st.success(f"Saved {label_str} financials for company!")
                     st.rerun()
