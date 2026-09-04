@@ -353,9 +353,18 @@ if company_rows:
                         years_span = max(years_diff, 1)
 
                     # Calculations
+                    note_msg = None
                     if s_val_raw > 0 and e_val_raw > 0 and years_span > 0:
                         calc_cagr = (((e_val_raw / s_val_raw) ** (1.0 / years_span)) - 1.0) * 100.0
                         cagr_str = f"{calc_cagr:.2f}%"
+                    elif s_val_raw < 0 and e_val_raw > 0 and years_span > 0:
+                        calc_cagr = (((e_val_raw - s_val_raw) / abs(s_val_raw)) / years_span) * 100.0
+                        cagr_str = f"{calc_cagr:+.2f}%"
+                        note_msg = "ℹ️ Turnaround detected (started in loss, ended in profit). Displaying Annualized Turnaround Rate."
+                    elif s_val_raw < 0 and e_val_raw < 0 and abs(e_val_raw) < abs(s_val_raw) and years_span > 0:
+                        calc_cagr = (((abs(s_val_raw) - abs(e_val_raw)) / abs(s_val_raw)) / years_span) * 100.0
+                        cagr_str = f"{calc_cagr:+.2f}%"
+                        note_msg = "ℹ️ Loss reduction detected (losses shrank over time). Displaying Annualized Loss Reduction Rate."
                     else:
                         cagr_str = "N/A"
 
@@ -375,8 +384,9 @@ if company_rows:
                     with m_card4:
                         st.metric(f"Compound Growth (CAGR)", cagr_str)
 
-                    if s_val_raw <= 0:
-                        st.caption("ℹ️ Note: Compound Growth (CAGR) and Total Growth % require a positive starting value (> 0).")
+                    if note_msg:
+                        st.caption(note_msg)
+
 
 
                     # Trend Chart for Selected Metric

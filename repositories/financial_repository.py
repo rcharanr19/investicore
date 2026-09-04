@@ -170,6 +170,20 @@ class FinancialRepository:
             return res
         return None
 
+    def _compute_span_years(self, r_start: dict, r_end: dict, period_type: str, records_slice: list[dict]) -> float:
+        if period_type == "Quarterly":
+            start_q = r_start.get("fiscal_quarter") or 1
+            end_q = r_end.get("fiscal_quarter") or 1
+            y_diff = (r_end.get("fiscal_year", 0) - r_start.get("fiscal_year", 0)) + (end_q - start_q) / 4.0
+            if y_diff <= 0:
+                y_diff = (len(records_slice) - 1) / 4.0
+            return max(y_diff, 0.25)
+        else:
+            y_diff = float(r_end.get("fiscal_year", 0) - r_start.get("fiscal_year", 0))
+            if y_diff <= 0:
+                y_diff = float(len(records_slice) - 1)
+            return max(y_diff, 1.0)
+
     def calculate_historical_cagr(
         self,
         company_id: str,
@@ -186,23 +200,40 @@ class FinancialRepository:
 
         if len(records) < 2:
             return None
+
         first = float(records[0].get(metric, 0.0) or 0.0)
         last = float(records[-1].get(metric, 0.0) or 0.0)
 
-        if period_type == "Quarterly":
-            start_q = records[0].get("fiscal_quarter") or 1
-            end_q = records[-1].get("fiscal_quarter") or 1
-            years = (records[-1]["fiscal_year"] - records[0]["fiscal_year"]) + (end_q - start_q) / 4.0
-            if years <= 0:
-                years = (len(records) - 1) / 4.0
-        else:
-            years = float(records[-1]["fiscal_year"] - records[0]["fiscal_year"])
-            if years <= 0:
-                years = float(len(records) - 1)
+        # 1. Standard CAGR if both start and end are positive
+        if first > 0 and last > 0:
+            years = self._compute_span_years(records[0], records[-1], period_type, records)
+            if years > 0:
+                return (((last / first) ** (1.0 / years)) - 1.0) * 100.0
 
-        if first <= 0 or last <= 0 or years <= 0:
-            return None
-        return (((last / first) ** (1.0 / years)) - 1.0) * 100.0
+        # 2. Positive sub-period CAGR if end is positive and earliest positive record exists
+        if last > 0:
+            pos_records = [r for r in records if float(r.get(metric, 0.0) or 0.0) > 0]
+            if len(pos_records) >= 2:
+                f_pos = float(pos_records[0].get(metric, 0.0) or 0.0)
+                l_pos = float(pos_records[-1].get(metric, 0.0) or 0.0)
+                years_pos = self._compute_span_years(pos_records[0], pos_records[-1], period_type, pos_records)
+                if f_pos > 0 and l_pos > 0 and years_pos > 0:
+                    return (((l_pos / f_pos) ** (1.0 / years_pos)) - 1.0) * 100.0
+
+        # 3. Turnaround (First < 0 and Last > 0) -> Annualized Turnaround Rate
+        if first < 0 and last > 0:
+            years = self._compute_span_years(records[0], records[-1], period_type, records)
+            if years > 0:
+                return (((last - first) / abs(first)) / years) * 100.0
+
+        # 4. Loss Reduction (First < 0 and Last < 0 and abs(last) < abs(first)) -> Annualized Loss Reduction Rate
+        if first < 0 and last < 0 and abs(last) < abs(first):
+            years = self._compute_span_years(records[0], records[-1], period_type, records)
+            if years > 0:
+                return (((abs(first) - abs(last)) / abs(first)) / years) * 100.0
+
+        return None
+
 
 
 
