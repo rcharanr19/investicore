@@ -1,0 +1,366 @@
+sections:
+  - id: business
+    name: Business
+    questions:
+      - id: company_what_it_does
+        name: What does the company do?
+        question: What does the company do?
+        type: short_text
+        required: true
+      - id: business_model
+        name: How does it make money?
+        question: How does it make money?
+        type: short_text
+        required: true
+      - id: customers
+        name: Who are its customers?
+        question: Who are its customers?
+        type: short_text
+        required: true
+      - id: problem_solved
+        name: What problem does it solve?
+        question: What problem does it solve?
+        type: short_text
+        required: true
+      - id: revenue_streams
+        name: Major revenue streams
+        question: What are the major revenue streams?
+        type: long_text
+        required: false
+      - id: revenue_drivers
+        name: Revenue drivers
+        question: What drives revenue?
+        type: long_text
+        required: false
+      - id: cost_drivers
+        name: Cost drivers
+        question: What drives costs?
+        type: long_text
+        required: false
+      - id: margin_drivers
+        name: Margin drivers
+        question: What drives margins?
+        type: long_text
+        required: false
+      - id: economic_engine
+        name: Economic engine
+        question: What is the company's economic engine?
+        type: long_text
+        required: false
+
+  - id: industry
+    name: Industry
+    questions:
+      - id: tam
+        name: TAM
+        question: What is the TAM?
+        type: currency
+        required: false
+      - id: industry_growth
+        name: Industry growth
+        question: What is industry growth?
+        type: percentage
+        required: false
+      - id: competitive_intensity
+        name: Competitive intensity
+        question: How intense is competition?
+        type: score
+        required: false
+        score_scale: [1, 5]
+      - id: barriers_to_entry
+        name: Barriers to entry
+        question: What are the barriers to entry?
+        type: long_text
+        required: false
+      - id: regulation
+        name: Regulation
+        question: How material is regulation?
+        type: score
+        required: false
+        score_scale: [1, 5]
+      - id: cyclicality
+        name: Cyclicality
+        question: How cyclical is the industry?
+        type: score
+        required: false
+        score_scale: [1, 5]
+      - id: technology_disruption
+        name: Technology disruption
+        question: How exposed is the business to disruption?
+        type: score
+        required: false
+        score_scale: [1, 5]
+      - id: capital_intensity
+        name: Capital intensity
+        question: How capital intensive is the business?
+        type: score
+        required: false
+        score_scale: [1, 5]
+      - id: industry_attractiveness_score
+        name: Industry attractiveness score
+        question: What is the industry attractiveness score?
+        type: score
+        required: false
+        score_scale: [1, 10]
+
+  - id: competitive_advantage
+    name: Competitive Advantage
+    questions:
+      - id: network_effects
+        name: Network effects
+        question: Network effects
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: switching_costs
+        name: Switching costs
+        question: Switching costs
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: cost_advantage
+        name: Cost advantage
+        question: Cost advantage
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: brand
+        name: Brand
+        question: Brand
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: scale
+        name: Scale
+        question: Scale
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: data_advantage
+        name: Data advantage
+        question: Data advantage
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: ip_technology
+        name: IP / technology
+        question: IP / technology
+        type: score
+        required: true
+        score_scale: [1, 5]
+      - id: distribution
+        name: Distribution
+        question: Distribution
+        type: score
+        required: true
+        score_scale: [1, 5]
+
+  - id: financial_quality
+    name: Financial Quality
+    questions:
+      - id: revenue_quality
+        name: Revenue quality
+        question: How strong is the revenue quality?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: margins_quality
+        name: Margin quality
+        question: How strong are margins?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: free_cash_flow
+        name: Free cash flow strength
+        question: How strong is free cash flow generation?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: balance_sheet
+        name: Balance sheet strength
+        question: How strong is the balance sheet?
+        type: score
+        required: false
+        score_scale: [1, 10]
+
+  - id: growth
+    name: Growth
+    questions:
+      - id: growth_rate
+        name: Growth rate
+        question: What is the growth rate?
+        type: percentage
+        required: false
+      - id: quality_of_growth
+        name: Quality of growth
+        question: How durable is the growth?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: operating_leverage
+        name: Operating leverage
+        question: What is the operating leverage profile?
+        type: score
+        required: false
+        score_scale: [1, 10]
+
+  - id: management
+    name: Management
+    questions:
+      - id: management_quality
+        name: Management quality
+        question: How would you assess management quality?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: historical_execution
+        name: Historical execution
+        question: How strong has historical execution been?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: capital_allocation_management
+        name: Capital allocation
+        question: How strong is capital allocation?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: incentives
+        name: Incentives
+        question: Are incentives aligned?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: track_record
+        name: Track record
+        question: What is the track record?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: insider_ownership
+        name: Insider ownership
+        question: How meaningful is insider ownership?
+        type: score
+        required: false
+        score_scale: [1, 10]
+
+  - id: capital_allocation
+    name: Capital Allocation
+    questions:
+      - id: reinvestment
+        name: Reinvestment
+        question: How attractive is reinvestment?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: rnd
+        name: R&D
+        question: How strong is R&D allocation?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: capex
+        name: Capex
+        question: How rational is capex usage?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: acquisitions
+        name: Acquisitions
+        question: How attractive are acquisitions?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: buybacks
+        name: Buybacks
+        question: How attractive are buybacks?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: dividends
+        name: Dividends
+        question: How attractive are dividends?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: debt
+        name: Debt
+        question: How reasonable is leverage?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: cash_deployment
+        name: Cash deployment
+        question: How strong is cash deployment?
+        type: score
+        required: false
+        score_scale: [1, 10]
+
+  - id: risks
+    name: Risks
+    questions:
+      - id: key_risks
+        name: Key risks
+        question: What are the key risks?
+        type: long_text
+        required: false
+      - id: risk_level
+        name: Risk level
+        question: How severe are the risks?
+        type: score
+        required: false
+        score_scale: [1, 10]
+
+  - id: valuation
+    name: Valuation
+    questions:
+      - id: intrinsic_value
+        name: Intrinsic value
+        question: What is the intrinsic value estimate?
+        type: currency
+        required: false
+      - id: valuation_quality
+        name: Valuation quality
+        question: How attractive is valuation?
+        type: score
+        required: false
+        score_scale: [1, 10]
+      - id: expected_return
+        name: Expected return
+        question: What is the expected annual return?
+        type: percentage
+        required: false
+
+  - id: investment_thesis
+    name: Investment Thesis
+    questions:
+      - id: investment_thesis_text
+        name: Investment thesis
+        question: What is the investment thesis?
+        type: long_text
+        required: true
+      - id: variant_perception
+        name: Variant perception
+        question: What is the variant perception?
+        type: long_text
+        required: false
+      - id: key_investment_drivers
+        name: Key investment drivers
+        question: What are the key investment drivers?
+        type: long_text
+        required: false
+      - id: catalysts
+        name: Catalysts
+        question: What catalysts matter?
+        type: long_text
+        required: false
+      - id: key_risks_thesis
+        name: Key risks
+        question: What are the key risks?
+        type: long_text
+        required: false
+      - id: thesis_breakers_summary
+        name: Thesis breakers
+        question: What would break the thesis?
+        type: long_text
+        required: false
