@@ -1,7 +1,13 @@
+-- Migration 001: Initial Core InvestiCore Schema
+-- Creates schema `investicore` and initializes core investment research tables.
+
+CREATE SCHEMA IF NOT EXISTS investicore;
+SET search_path TO investicore, public;
+
 -- Enable UUID generation extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE IF NOT EXISTS companies (
+CREATE TABLE IF NOT EXISTS investicore.companies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     ticker TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
@@ -15,9 +21,9 @@ CREATE TABLE IF NOT EXISTS companies (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS analyses (
+CREATE TABLE IF NOT EXISTS investicore.analyses (
     id UUID PRIMARY KEY,
-    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES investicore.companies(id) ON DELETE CASCADE,
     framework_version TEXT NOT NULL,
     analysis_date DATE NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('Draft', 'Completed', 'Archived')),
@@ -32,9 +38,9 @@ CREATE TABLE IF NOT EXISTS analyses (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS analysis_answers (
+CREATE TABLE IF NOT EXISTS investicore.analysis_answers (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     section_id TEXT NOT NULL,
     question_id TEXT NOT NULL,
     answer_value TEXT,
@@ -44,9 +50,9 @@ CREATE TABLE IF NOT EXISTS analysis_answers (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS financials (
+CREATE TABLE IF NOT EXISTS investicore.financials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES investicore.companies(id) ON DELETE CASCADE,
     fiscal_year INTEGER NOT NULL,
     period_type TEXT NOT NULL DEFAULT 'Annual',
     fiscal_quarter INTEGER,
@@ -68,9 +74,9 @@ CREATE TABLE IF NOT EXISTS financials (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS growth_drivers (
+CREATE TABLE IF NOT EXISTS investicore.growth_drivers (
     id UUID PRIMARY KEY,
-    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    company_id UUID NOT NULL REFERENCES investicore.companies(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT,
     unit TEXT,
@@ -81,9 +87,9 @@ CREATE TABLE IF NOT EXISTS growth_drivers (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS growth_driver_values (
+CREATE TABLE IF NOT EXISTS investicore.growth_driver_values (
     id UUID PRIMARY KEY,
-    growth_driver_id UUID NOT NULL REFERENCES growth_drivers(id) ON DELETE CASCADE,
+    growth_driver_id UUID NOT NULL REFERENCES investicore.growth_drivers(id) ON DELETE CASCADE,
     fiscal_year INTEGER NOT NULL,
     value NUMERIC,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -91,9 +97,9 @@ CREATE TABLE IF NOT EXISTS growth_driver_values (
     UNIQUE(growth_driver_id, fiscal_year)
 );
 
-CREATE TABLE IF NOT EXISTS moat_assessments (
+CREATE TABLE IF NOT EXISTS investicore.moat_assessments (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     category TEXT NOT NULL,
     score INTEGER CHECK (score >= 1 AND score <= 5),
     evidence TEXT,
@@ -101,9 +107,9 @@ CREATE TABLE IF NOT EXISTS moat_assessments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS risks (
+CREATE TABLE IF NOT EXISTS investicore.risks (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     risk TEXT NOT NULL,
     category TEXT NOT NULL CHECK (category IN ('Competition', 'Regulation', 'Technology', 'Management', 'Financial', 'Macroeconomic', 'Valuation', 'Capital Allocation', 'Execution', 'Other')),
     probability INTEGER CHECK (probability >= 0 AND probability <= 100),
@@ -116,9 +122,9 @@ CREATE TABLE IF NOT EXISTS risks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS thesis_breakers (
+CREATE TABLE IF NOT EXISTS investicore.thesis_breakers (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     condition TEXT NOT NULL,
     metric TEXT,
     operator TEXT,
@@ -129,9 +135,9 @@ CREATE TABLE IF NOT EXISTS thesis_breakers (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS scenarios (
+CREATE TABLE IF NOT EXISTS investicore.scenarios (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     scenario_name TEXT NOT NULL CHECK (scenario_name IN ('Bear', 'Base', 'Bull')),
     probability INTEGER CHECK (probability >= 0 AND probability <= 100),
     revenue_cagr NUMERIC,
@@ -149,9 +155,9 @@ CREATE TABLE IF NOT EXISTS scenarios (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS valuations (
+CREATE TABLE IF NOT EXISTS investicore.valuations (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     valuation_name TEXT,
     implied_share_price NUMERIC,
     expected_annual_return NUMERIC,
@@ -160,9 +166,9 @@ CREATE TABLE IF NOT EXISTS valuations (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS theses (
+CREATE TABLE IF NOT EXISTS investicore.theses (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     investment_thesis TEXT,
     variant_perception TEXT,
     key_investment_drivers TEXT,
@@ -175,9 +181,9 @@ CREATE TABLE IF NOT EXISTS theses (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS thesis_updates (
+CREATE TABLE IF NOT EXISTS investicore.thesis_updates (
     id UUID PRIMARY KEY,
-    analysis_id UUID NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+    analysis_id UUID NOT NULL REFERENCES investicore.analyses(id) ON DELETE CASCADE,
     previous_analysis_id UUID,
     version_number INTEGER,
     change_summary TEXT,
@@ -193,27 +199,27 @@ CREATE TABLE IF NOT EXISTS thesis_updates (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_companies_ticker ON companies(ticker);
-CREATE INDEX IF NOT EXISTS idx_companies_status ON companies(status);
-CREATE INDEX IF NOT EXISTS idx_analyses_company_id ON analyses(company_id);
-CREATE INDEX IF NOT EXISTS idx_analyses_date ON analyses(analysis_date);
-CREATE INDEX IF NOT EXISTS idx_analysis_answers_analysis ON analysis_answers(analysis_id);
-CREATE INDEX IF NOT EXISTS idx_financials_company_year ON financials(company_id, fiscal_year);
-CREATE INDEX IF NOT EXISTS idx_growth_drivers_company ON growth_drivers(company_id);
-CREATE INDEX IF NOT EXISTS idx_risks_analysis ON risks(analysis_id);
-CREATE INDEX IF NOT EXISTS idx_thesis_breakers_analysis ON thesis_breakers(analysis_id);
-CREATE INDEX IF NOT EXISTS idx_scenarios_analysis ON scenarios(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_companies_ticker ON investicore.companies(ticker);
+CREATE INDEX IF NOT EXISTS idx_companies_status ON investicore.companies(status);
+CREATE INDEX IF NOT EXISTS idx_analyses_company_id ON investicore.analyses(company_id);
+CREATE INDEX IF NOT EXISTS idx_analyses_date ON investicore.analyses(analysis_date);
+CREATE INDEX IF NOT EXISTS idx_analysis_answers_analysis ON investicore.analysis_answers(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_financials_company_year ON investicore.financials(company_id, fiscal_year);
+CREATE INDEX IF NOT EXISTS idx_growth_drivers_company ON investicore.growth_drivers(company_id);
+CREATE INDEX IF NOT EXISTS idx_risks_analysis ON investicore.risks(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_thesis_breakers_analysis ON investicore.thesis_breakers(analysis_id);
+CREATE INDEX IF NOT EXISTS idx_scenarios_analysis ON investicore.scenarios(analysis_id);
 
-ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analyses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analysis_answers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE financials ENABLE ROW LEVEL SECURITY;
-ALTER TABLE growth_drivers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE growth_driver_values ENABLE ROW LEVEL SECURITY;
-ALTER TABLE moat_assessments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE risks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE thesis_breakers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE scenarios ENABLE ROW LEVEL SECURITY;
-ALTER TABLE valuations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE theses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE thesis_updates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.companies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.analyses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.analysis_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.financials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.growth_drivers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.growth_driver_values ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.moat_assessments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.risks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.thesis_breakers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.scenarios ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.valuations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.theses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.thesis_updates ENABLE ROW LEVEL SECURITY;

@@ -6,6 +6,7 @@ from repositories.financial_repository import FinancialRepository
 from repositories.growth_driver_repository import GrowthDriverRepository
 from repositories.risk_repository import RiskRepository
 from repositories.scenario_repository import ScenarioRepository
+from repositories.sec_filing_repository import SECFilingRepository
 from repositories.thesis_breaker_repository import ThesisBreakerRepository
 from services.framework import load_framework
 
@@ -16,6 +17,7 @@ scenario_repository = ScenarioRepository()
 risk_repository = RiskRepository()
 thesis_breaker_repository = ThesisBreakerRepository()
 growth_driver_repository = GrowthDriverRepository()
+sec_filing_repository = SECFilingRepository()
 
 
 def seed_core_data() -> None:
@@ -27,6 +29,8 @@ def seed_core_data() -> None:
         {
             "ticker": "META",
             "name": "Meta Platforms, Inc.",
+            "cik": "0001326801",
+            "sic": "7370",
             "sector": "Communication Services",
             "industry": "Internet Content & Information",
             "country": "United States",

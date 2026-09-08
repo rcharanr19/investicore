@@ -12,6 +12,7 @@ seed_core_data()
 
 pages = [
     st.Page("pages/dashboard.py", title="Dashboard", icon="📊"),
+    st.Page("pages/sec_research.py", title="SEC Research", icon="🏛️"),
     st.Page("pages/companies.py", title="Companies", icon="🏢"),
     st.Page("pages/new_analysis.py", title="New Analysis", icon="📝"),
     st.Page("pages/research.py", title="Research", icon="🔎"),

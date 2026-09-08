@@ -14,6 +14,8 @@ class CompanyRepository:
         db_payload = {
             "ticker": data["ticker"].upper(),
             "name": data["name"],
+            "cik": data.get("cik"),
+            "sic": data.get("sic"),
             "sector": data.get("sector"),
             "industry": data.get("industry"),
             "country": data.get("country"),
@@ -40,6 +42,8 @@ class CompanyRepository:
             "id": cid,
             "ticker": data["ticker"].upper(),
             "name": data["name"],
+            "cik": data.get("cik"),
+            "sic": data.get("sic"),
             "sector": data.get("sector"),
             "industry": data.get("industry"),
             "country": data.get("country"),
@@ -112,6 +116,25 @@ class CompanyRepository:
 
         for company in self._store.values():
             if company.get("ticker") == ticker.upper():
+                return company
+        return None
+
+    def get_by_cik(self, cik: str) -> dict[str, Any] | None:
+        clean_cik = str(cik).strip().lstrip("0").zfill(10)
+        table = get_db_table("companies")
+        if table is not None:
+            try:
+                res = table.select("*").eq("cik", clean_cik).execute()
+                if res and res.data:
+                    rec = res.data[0]
+                    self._store[rec["id"]] = rec
+                    return rec
+            except Exception:
+                pass
+
+        for company in self._store.values():
+            comp_cik = str(company.get("cik") or "").strip().lstrip("0").zfill(10)
+            if comp_cik and comp_cik == clean_cik:
                 return company
         return None
 
