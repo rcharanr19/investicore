@@ -40,7 +40,7 @@ if companies:
             "Decision": latest_analysis.get("decision", "Watch") if latest_analysis else "Not Analyzed",
             "Quality Score": latest_analysis.get("overall_score", 0.0) if latest_analysis else 0.0,
             "Confidence": f"{latest_analysis.get('confidence', 0)}%" if latest_analysis else "0%",
-            "Latest Revenue ($M)": float(latest_fin["revenue"]) if latest_fin else "N/A",
+            "Latest Revenue ($M)": f"${float(latest_fin['revenue']):,.1f}M" if latest_fin and latest_fin.get("revenue") is not None else "N/A",
             "Weighted Valuation Target": val_target,
             "Last Analysis Date": latest_analysis.get("analysis_date", "N/A") if latest_analysis else "N/A",
         })
