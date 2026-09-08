@@ -61,7 +61,7 @@ class InsiderTransactionsRepository:
                 if open_market_only:
                     query = query.eq("is_open_market_purchase", True)
                 res = query.order("transaction_date", desc=True).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

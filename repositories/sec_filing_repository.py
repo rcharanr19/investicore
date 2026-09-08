@@ -126,7 +126,7 @@ class SECFilingRepository:
                 if form_types:
                     query = query.in_("form_type", form_types)
                 res = query.order("filing_date", desc=True).limit(limit).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

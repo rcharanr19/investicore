@@ -84,7 +84,7 @@ class CatalystRepository:
                 if status:
                     query = query.eq("status", status)
                 res = query.order("date_identified", desc=True).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

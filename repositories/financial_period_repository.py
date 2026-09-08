@@ -117,7 +117,7 @@ class FinancialPeriodRepository:
                 if period_type:
                     query = query.eq("period_type", period_type)
                 res = query.order("period_end", desc=True).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

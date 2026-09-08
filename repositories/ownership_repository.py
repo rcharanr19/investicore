@@ -58,7 +58,7 @@ class OwnershipFilingsRepository:
                 if activist_only:
                     query = query.eq("is_activist", True)
                 res = query.order("ownership_pct", desc=True).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

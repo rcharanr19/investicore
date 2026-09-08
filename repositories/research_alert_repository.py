@@ -53,7 +53,7 @@ class ResearchAlertRepository:
                 if severity:
                     query = query.eq("severity", severity)
                 res = query.order("created_at", desc=True).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

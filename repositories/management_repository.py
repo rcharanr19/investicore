@@ -66,7 +66,7 @@ class ManagementCompensationRepository:
                     .order("total_compensation", desc=True)
                     .execute()
                 )
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data

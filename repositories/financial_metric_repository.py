@@ -66,7 +66,7 @@ class FinancialMetricRepository:
         if table is not None:
             try:
                 res = table.select("*").eq("financial_period_id", financial_period_id).execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data
@@ -83,7 +83,7 @@ class FinancialMetricRepository:
                 if metric_name:
                     query = query.eq("metric_name", metric_name)
                 res = query.execute()
-                if res and res.data is not None:
+                if res and res.data:
                     for rec in res.data:
                         self._store[rec["id"]] = rec
                     return res.data
