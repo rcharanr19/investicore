@@ -1,18 +1,38 @@
 from __future__ import annotations
 
+from datetime import date
 import pandas as pd
 import streamlit as st
 
 from database.store import (
+    analysis_repository,
+    catalyst_repository,
     company_repository,
     financial_metric_repository,
     financial_period_repository,
     financial_repository,
+    research_alert_repository,
     sec_filing_repository,
+    thesis_breaker_repository,
+    valuation_snapshot_repository,
 )
-from services.ncav import calculate_ncav, calculate_ncav_per_share, calculate_net_cash, calculate_nnwc, calculate_price_to_ncav
+from services.change_detector import SECChangeDetector
+from services.cigar_butt_scoring import calculate_cigar_butt_score, perform_forensic_checks
+from services.ncav import (
+    NCAVAssumptions,
+    calculate_adjusted_liquidation_value,
+    calculate_cash_burn_and_runway,
+    calculate_ncav,
+    calculate_ncav_per_share,
+    calculate_net_cash,
+    calculate_nnwc,
+    calculate_price_to_ncav,
+    calculate_scenario_expected_value,
+    calculate_share_dilution,
+)
 from services.sec import (
     format_cik,
+    sec_catalyst_detector,
     sec_company_service,
     sec_concept_mapper,
     sec_filing_service,
@@ -23,8 +43,8 @@ from services.sec import (
 
 st.set_page_config(page_title="SEC Fundamental Research — InvestiCore", page_icon="🏛️", layout="wide")
 
-st.title("🏛️ SEC Fundamental Research & Filing Explorer")
-st.caption("Primary-source SEC EDGAR filing ingestion, CIK identification, and structured financial extraction")
+st.title("🏛️ SEC Fundamental Research & Cigar-Butt Workstation")
+st.caption("Primary-source SEC EDGAR filing ingestion, XBRL reconstruction, forensic cigar-butt valuation, catalysts, and thesis tracking")
 
 # --- SECTION 1: COMPANY INTAKE ---
 with st.container():
@@ -35,7 +55,7 @@ with st.container():
     with col1:
         ticker_input = st.text_input(
             "Stock Ticker Symbol",
-            placeholder="e.g. META, AAPL, MSFT, INTC, BBBY",
+            placeholder="e.g. GTLB, META, AAPL, MSFT, INTC, BBBY",
             help="Case-insensitive ticker symbol",
             key="sec_ticker_input",
         )
@@ -90,48 +110,62 @@ if ticker_input.strip():
     else:
         st.error(f"Could not resolve SEC CIK for ticker '{clean_ticker}'. Please verify the symbol or check SEC EDGAR.")
 
-# --- SECTION 2: SEC FILINGS DISCOVERY & STORAGE ---
+# --- RESEARCH DOSSIER TABS ---
 if selected_company:
     st.divider()
-    st.subheader("2. SEC Filings Archive & Ingestion")
 
-    fcol1, fcol2, fcol3 = st.columns([2, 1, 1])
-    with fcol1:
-        form_filter = st.multiselect(
-            "Filter Form Types",
-            options=["10-K", "10-Q", "8-K", "DEF 14A", "4", "20-F", "6-K", "13D", "13G"],
-            default=["10-K", "10-Q", "8-K", "DEF 14A"],
-        )
-    with fcol2:
-        filing_limit = st.slider("Filing Limit", min_value=10, max_value=100, value=30, step=10)
-    with fcol3:
-        st.write("")
-        st.write("")
-        sync_filings_btn = st.button("📥 Sync & Store Filings", use_container_width=True)
+    dossier_tabs = st.tabs([
+        "📥 1. SEC Filings Archive",
+        "📊 2. Financial Statements (5-Yr / 8-Qtr)",
+        "📉 3. Cigar-Butt & Forensic Analysis",
+        "⚡ 4. Catalysts & 8-K Timeline",
+        "🎯 5. Scenario Valuation & Snapshots",
+        "📒 6. Thesis & Thesis Killers",
+        "🚨 7. Filing Change Alerts",
+    ])
 
-    if sync_filings_btn or research_btn:
-        with st.spinner(f"Ingesting latest SEC filings for {selected_company['name']}..."):
-            saved = sec_filing_service.sync_company_filings(
-                company_id=selected_company["id"],
-                cik=selected_company.get("cik") or cik,
-                filing_repository=sec_filing_repository,
-                form_types=form_filter,
-                limit=filing_limit,
+    # ==========================================
+    # TAB 1: SEC FILINGS ARCHIVE
+    # ==========================================
+    with dossier_tabs[0]:
+        st.subheader("SEC Filings Archive & Ingestion")
+
+        fcol1, fcol2, fcol3 = st.columns([2, 1, 1])
+        with fcol1:
+            form_filter = st.multiselect(
+                "Filter Form Types",
+                options=["10-K", "10-Q", "8-K", "DEF 14A", "4", "20-F", "6-K", "13D", "13G"],
+                default=["10-K", "10-Q", "8-K", "DEF 14A"],
+                key="tab1_form_filter",
             )
-            st.toast(f"Synchronized {len(saved)} filings into repository!", icon="📥")
+        with fcol2:
+            filing_limit = st.slider("Filing Limit", min_value=10, max_value=100, value=30, step=10, key="tab1_limit")
+        with fcol3:
+            st.write("")
+            st.write("")
+            sync_filings_btn = st.button("📥 Sync & Store Filings", use_container_width=True, key="tab1_sync_btn")
 
-    # Load stored filings for this company
-    stored_filings = sec_filing_repository.list_by_company(
-        company_id=selected_company["id"],
-        form_types=form_filter,
-        limit=filing_limit,
-    )
+        if sync_filings_btn or research_btn:
+            with st.spinner(f"Ingesting latest SEC filings for {selected_company['name']}..."):
+                saved = sec_filing_service.sync_company_filings(
+                    company_id=selected_company["id"],
+                    cik=selected_company.get("cik") or cik,
+                    filing_repository=sec_filing_repository,
+                    form_types=form_filter,
+                    limit=filing_limit,
+                )
+                st.toast(f"Synchronized {len(saved)} filings into repository!", icon="📥")
 
-    if stored_filings:
-        table_rows = []
-        for f in stored_filings:
-            table_rows.append(
-                {
+        stored_filings = sec_filing_repository.list_by_company(
+            company_id=selected_company["id"],
+            form_types=form_filter,
+            limit=filing_limit,
+        )
+
+        if stored_filings:
+            table_rows = []
+            for f in stored_filings:
+                table_rows.append({
                     "Form": f.get("form_type"),
                     "Filing Date": f.get("filing_date"),
                     "Report Period": f.get("report_date") or "N/A",
@@ -141,135 +175,58 @@ if selected_company:
                     "Status": f.get("parsed_status", "Unparsed"),
                     "Primary Document": f.get("primary_document"),
                     "EDGAR URL": f.get("filing_url"),
-                }
+                })
+
+            st.dataframe(
+                pd.DataFrame(table_rows),
+                column_config={
+                    "EDGAR URL": st.column_config.LinkColumn("EDGAR Source", display_text="🔗 View Filing"),
+                },
+                use_container_width=True,
+                hide_index=True,
             )
 
-        df_filings = pd.DataFrame(table_rows)
+            with st.expander("📄 View Raw SEC Document & Verification Hash", expanded=False):
+                acc_list = [f["accession_number"] for f in stored_filings]
+                selected_acc = st.selectbox("Select Accession Number to Inspect", acc_list, key="tab1_acc_select")
+                target_f = next((f for f in stored_filings if f["accession_number"] == selected_acc), None)
 
-        st.dataframe(
-            df_filings,
-            column_config={
-                "EDGAR URL": st.column_config.LinkColumn("EDGAR Source", display_text="🔗 View Filing"),
-            },
-            use_container_width=True,
-            hide_index=True,
-        )
+                if target_f:
+                    st.markdown(f"**Form:** `{target_f.get('form_type')}` | **Filing Date:** `{target_f.get('filing_date')}` | **Primary Document:** `{target_f.get('primary_document')}`")
+                    st.markdown(f"**Direct URL:** [{target_f.get('filing_url')}]({target_f.get('filing_url')})")
 
-        # Filing Inspector / Document Viewer
-        with st.expander("📄 View Raw SEC Document & Verification Hash", expanded=False):
-            acc_list = [f["accession_number"] for f in stored_filings]
-            selected_acc = st.selectbox("Select Filing Accession Number to Inspect", acc_list)
-            target_f = next((f for f in stored_filings if f["accession_number"] == selected_acc), None)
+                    fetch_doc_btn = st.button("📥 Retrieve Document Content & Compute SHA256", key="fetch_raw_doc_btn")
+                    if fetch_doc_btn:
+                        with st.spinner("Fetching filing document from SEC..."):
+                            content, chash = sec_filing_service.fetch_filing_document(
+                                cik=selected_company.get("cik") or cik,
+                                accession_number=target_f["accession_number"],
+                                primary_document=target_f.get("primary_document", ""),
+                            )
+                            if content:
+                                st.success(f"✅ Document retrieved successfully! SHA256 Hash: `{chash}`")
+                                st.text_area("Document Preview (First 5,000 characters)", value=content[:5000], height=300)
+                            else:
+                                st.warning("Could not download raw document content from SEC EDGAR.")
+        else:
+            st.info("No filings stored for this company yet. Click '📥 Sync & Store Filings' to import from SEC EDGAR.")
 
-            if target_f:
-                st.markdown(f"**Form:** `{target_f.get('form_type')}` | **Filing Date:** `{target_f.get('filing_date')}` | **Primary Document:** `{target_f.get('primary_document')}`")
-                st.markdown(f"**Direct URL:** [{target_f.get('filing_url')}]({target_f.get('filing_url')})")
-
-                fetch_doc_btn = st.button("📥 Retrieve Document Content & Compute SHA256", key="fetch_raw_doc_btn")
-                if fetch_doc_btn:
-                    with st.spinner("Fetching filing document from SEC..."):
-                        content, chash = sec_filing_service.fetch_filing_document(
-                            cik=selected_company.get("cik") or cik,
-                            accession_number=target_f["accession_number"],
-                            primary_document=target_f.get("primary_document", ""),
-                        )
-                        if content:
-                            st.success(f"✅ Document retrieved successfully! SHA256 Hash: `{chash}`")
-                            st.text_area("Document Preview (First 5,000 characters)", value=content[:5000], height=300)
-                        else:
-                            st.warning("Could not download raw document content from SEC EDGAR.")
-
-    else:
-        st.info("No filings stored for this company yet. Click '📥 Sync & Store Filings' to import from SEC EDGAR.")
-
-    # --- SECTION 3: XBRL EXTRACTION & NCAV PREVIEW ---
-    st.divider()
-    st.subheader("3. Structured XBRL Extraction & Net-Net / NCAV Preview")
-
-    with st.spinner("Analyzing SEC XBRL Company Facts..."):
-        facts = sec_xbrl_service.get_company_facts(selected_company.get("cik") or cik)
-
-    if facts:
-        st.success(f"✅ XBRL facts archive located for CIK {selected_company.get('cik') or cik}!")
-
-        # Extract Canonical Metrics
-        cash_m = sec_concept_mapper.map_metric_from_facts(facts, "cash")
-        curr_assets_m = sec_concept_mapper.map_metric_from_facts(facts, "total_current_assets")
-        curr_liab_m = sec_concept_mapper.map_metric_from_facts(facts, "current_liabilities")
-        tot_liab_m = sec_concept_mapper.map_metric_from_facts(facts, "total_liabilities")
-        shares_m = sec_concept_mapper.map_metric_from_facts(facts, "shares_diluted")
-        rec_m = sec_concept_mapper.map_metric_from_facts(facts, "accounts_receivable")
-        inv_m = sec_concept_mapper.map_metric_from_facts(facts, "inventory")
-
-        # Convert raw dollars to Millions ($M)
-        cash_val = (cash_m["value"] / 1_000_000.0) if cash_m and cash_m.get("value") is not None else None
-        curr_assets_val = (curr_assets_m["value"] / 1_000_000.0) if curr_assets_m and curr_assets_m.get("value") is not None else None
-        curr_liab_val = (curr_liab_m["value"] / 1_000_000.0) if curr_liab_m and curr_liab_m.get("value") is not None else None
-        tot_liab_val = (tot_liab_m["value"] / 1_000_000.0) if tot_liab_m and tot_liab_m.get("value") is not None else None
-        shares_val = (shares_m["value"] / 1_000_000.0) if shares_m and shares_m.get("value") is not None else 1.0
-        rec_val = (rec_m["value"] / 1_000_000.0) if rec_m and rec_m.get("value") is not None else 0.0
-        inv_val = (inv_m["value"] / 1_000_000.0) if inv_m and inv_m.get("value") is not None else 0.0
-
-        # Calculations
-        ncav = calculate_ncav(curr_assets_val, tot_liab_val)
-        ncav_ps = calculate_ncav_per_share(ncav, shares_val)
-        nnwc = calculate_nnwc(
-            cash=cash_val,
-            marketable_securities=0.0,
-            accounts_receivable=rec_val,
-            inventory=inv_val,
-            other_current_assets=0.0,
-            total_liabilities=tot_liab_val,
-        )
-        nnwc_ps = calculate_ncav_per_share(nnwc, shares_val)
-
-        # Metric Overview Columns
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Current Assets ($M)", f"${curr_assets_val:,.1f}M" if curr_assets_val is not None else "N/A")
-        c2.metric("Total Liabilities ($M)", f"${tot_liab_val:,.1f}M" if tot_liab_val is not None else "N/A")
-        c3.metric("NCAV ($M)", f"${ncav:,.1f}M" if ncav is not None else "N/A")
-        c4.metric("NCAV / Share", f"${ncav_ps:,.2f}" if ncav_ps is not None else "N/A")
-
-        c5, c6, c7, c8 = st.columns(4)
-        c5.metric("Cash & Equiv ($M)", f"${cash_val:,.1f}M" if cash_val is not None else "N/A")
-        c6.metric("Receivables ($M)", f"${rec_val:,.1f}M" if rec_val is not None else "N/A")
-        c7.metric("NNWC ($M)", f"${nnwc:,.1f}M" if nnwc is not None else "N/A")
-        c8.metric("NNWC / Share", f"${nnwc_ps:,.2f}" if nnwc_ps is not None else "N/A")
-
-        # Provenance & Audit Table
-        st.markdown("#### 🔍 Primary-Source Provenance & Audit Trail")
-        prov_rows = []
-        for m_obj in [cash_m, curr_assets_m, tot_liab_m, rec_m, inv_m, shares_m]:
-            if m_obj:
-                prov_rows.append(
-                    {
-                        "Metric": m_obj["metric_name"],
-                        "Reported Value": f"{m_obj['value']:,} {m_obj.get('unit', '')}",
-                        "XBRL Concept": m_obj["source_concept"],
-                        "Form": m_obj.get("form"),
-                        "Filing Date": m_obj.get("filing_date"),
-                        "Period End": m_obj.get("period_end"),
-                        "Confidence": m_obj["confidence"],
-                        "Accession": m_obj.get("accession_number"),
-                    }
-                )
-        if prov_rows:
-            st.dataframe(pd.DataFrame(prov_rows), use_container_width=True, hide_index=True)
-
-        # --- SECTION 4: MULTI-YEAR RECONSTRUCTION & STATEMENT EXPLORER ---
-        st.divider()
-        st.subheader("4. Multi-Year Historical Financial Statements (5-Yr Annual & 8-Qtr)")
-        st.caption("Reconstructs normalized Income Statement, Balance Sheet, and Cash Flow Statements directly from SEC XBRL company facts.")
+    # ==========================================
+    # TAB 2: FINANCIAL STATEMENTS
+    # ==========================================
+    with dossier_tabs[1]:
+        st.subheader("Multi-Year Historical Financial Statements (5-Yr Annual & 8-Qtr)")
+        st.caption("Reconstructed directly from SEC XBRL company facts with full concept provenance.")
 
         recon_col1, recon_col2, recon_col3 = st.columns([2, 1, 1])
         with recon_col1:
-            st.markdown("Populates `financial_periods`, `financial_metrics`, and InvestiCore `financials` tables with complete concept provenance.")
+            st.markdown("Populates `financial_periods`, `financial_metrics`, and core `financials` tables.")
         with recon_col2:
-            ann_limit_val = st.number_input("Annual Years", min_value=3, max_value=10, value=5, step=1)
+            ann_limit_val = st.number_input("Annual Years", min_value=3, max_value=10, value=5, step=1, key="tab2_ann_limit")
         with recon_col3:
             st.write("")
             st.write("")
-            reconstruct_btn = st.button("⚡ Ingest Full SEC History", type="primary", use_container_width=True)
+            reconstruct_btn = st.button("⚡ Ingest Full SEC History", type="primary", use_container_width=True, key="tab2_recon_btn")
 
         if reconstruct_btn:
             with st.spinner(f"Ingesting multi-year financial statements for CIK {selected_company.get('cik') or cik}..."):
@@ -283,48 +240,40 @@ if selected_company:
                     quarterly_limit=8,
                 )
                 if recon_res.get("status") == "success":
-                    st.success(
-                        f"✅ Ingestion complete! Saved {recon_res['annual_periods_count']} Annual Periods, "
-                        f"{recon_res['quarterly_periods_count']} Quarterly Periods, and {recon_res['total_metrics_saved']} normalized XBRL metrics."
-                    )
+                    st.success(f"✅ Ingestion complete! Saved {recon_res['annual_periods_count']} Annual Periods and {recon_res['quarterly_periods_count']} Quarterly Periods.")
                 else:
                     st.error(recon_res.get("message", "Error during statement ingestion."))
 
-        # View Reconstructed Statements
         existing_periods = financial_period_repository.list_by_company(selected_company["id"])
         annual_p_list = [p for p in existing_periods if p.get("period_type") == "Annual"]
         quarterly_p_list = [p for p in existing_periods if p.get("period_type") == "Quarterly"]
 
-        view_mode = st.radio("Statement Frequency", ["Annual (Multi-Year)", "Quarterly (Multi-Period)"], horizontal=True)
+        view_mode = st.radio("Statement Frequency", ["Annual (Multi-Year)", "Quarterly (Multi-Period)"], horizontal=True, key="tab2_view_mode")
         active_periods = annual_p_list if "Annual" in view_mode else quarterly_p_list
 
         if active_periods:
-            tab_is, tab_bs, tab_cf, tab_cigar, tab_audit = st.tabs([
+            sub_tabs = st.tabs([
                 "📊 Income Statement",
                 "🏦 Balance Sheet",
                 "💵 Cash Flow Statement",
-                "📉 Cigar-Butt & Net-Net",
                 "🔍 Concept Provenance Audit",
             ])
 
-            # Prepare columns (periods sorted chronologically)
             sorted_p = sorted(active_periods, key=lambda x: str(x.get("period_end") or ""))
             col_labels = [
                 f"FY{p['fiscal_year']}" if p.get("period_type") == "Annual" else f"{p['fiscal_year']} {p.get('fiscal_period', '')}"
                 for p in sorted_p
             ]
 
-            # Helper to build matrix for a set of metrics
-            def build_statement_matrix(metric_defs: list[tuple[str, str, bool]]):
+            def build_tab_matrix(metric_defs: list[tuple[str, str]]):
                 rows = []
-                for label, m_name, is_header in metric_defs:
+                for label, m_name in metric_defs:
                     row_data = {"Metric ($M)": label}
                     for p, col_name in zip(sorted_p, col_labels):
                         p_metrics = financial_metric_repository.list_by_period(p["id"])
                         m_rec = next((m for m in p_metrics if m["metric_name"] == m_name), None)
                         if m_rec and m_rec.get("metric_value") is not None:
                             val = float(m_rec["metric_value"])
-                            # If metric is per share, display as raw decimal, else convert to $M
                             if "eps" in m_name:
                                 row_data[col_name] = f"${val:,.2f}"
                             elif "shares" in m_name:
@@ -336,78 +285,63 @@ if selected_company:
                     rows.append(row_data)
                 return pd.DataFrame(rows)
 
-            with tab_is:
-                st.markdown("#### Income Statement ($ in Millions)")
+            with sub_tabs[0]:
                 is_defs = [
-                    ("Revenue", "revenue", False),
-                    ("Cost of Goods Sold (COGS)", "cogs", False),
-                    ("Gross Profit", "gross_profit", False),
-                    ("Operating Expenses", "operating_expenses", False),
-                    ("Operating Income", "operating_income", False),
-                    ("Interest Expense", "interest_expense", False),
-                    ("Pre-Tax Income", "pretax_income", False),
-                    ("Income Tax Expense", "income_tax", False),
-                    ("Net Income", "net_income", False),
-                    ("Diluted EPS ($)", "eps_diluted", False),
-                    ("Diluted Shares", "shares_diluted", False),
+                    ("Revenue", "revenue"),
+                    ("Cost of Goods Sold (COGS)", "cogs"),
+                    ("Gross Profit", "gross_profit"),
+                    ("Operating Expenses", "operating_expenses"),
+                    ("Operating Income", "operating_income"),
+                    ("Interest Expense", "interest_expense"),
+                    ("Pre-Tax Income", "pretax_income"),
+                    ("Income Tax Expense", "income_tax"),
+                    ("Net Income", "net_income"),
+                    ("Diluted EPS ($)", "eps_diluted"),
+                    ("Diluted Shares", "shares_diluted"),
                 ]
-                st.dataframe(build_statement_matrix(is_defs), use_container_width=True, hide_index=True)
+                st.dataframe(build_tab_matrix(is_defs), use_container_width=True, hide_index=True)
 
-            with tab_bs:
-                st.markdown("#### Balance Sheet ($ in Millions)")
+            with sub_tabs[1]:
                 bs_defs = [
-                    ("Cash & Cash Equivalents", "cash", False),
-                    ("Marketable Securities", "marketable_securities", False),
-                    ("Accounts Receivable", "accounts_receivable", False),
-                    ("Inventory", "inventory", False),
-                    ("Other Current Assets", "other_current_assets", False),
-                    ("Total Current Assets", "total_current_assets", False),
-                    ("Property, Plant & Equipment", "ppe", False),
-                    ("Goodwill", "goodwill", False),
-                    ("Intangible Assets", "intangibles", False),
-                    ("Other Non-Current Assets", "other_assets", False),
-                    ("Total Assets", "total_assets", False),
-                    ("Accounts Payable", "accounts_payable", False),
-                    ("Short-Term Debt", "short_term_debt", False),
-                    ("Current Liabilities", "current_liabilities", False),
-                    ("Long-Term Debt", "long_term_debt", False),
-                    ("Lease Liabilities", "lease_liabilities", False),
-                    ("Total Liabilities", "total_liabilities", False),
-                    ("Common Equity", "common_equity", False),
-                    ("Retained Earnings", "retained_earnings", False),
-                    ("Total Stockholders Equity", "total_equity", False),
+                    ("Cash & Cash Equivalents", "cash"),
+                    ("Marketable Securities", "marketable_securities"),
+                    ("Accounts Receivable", "accounts_receivable"),
+                    ("Inventory", "inventory"),
+                    ("Other Current Assets", "other_current_assets"),
+                    ("Total Current Assets", "total_current_assets"),
+                    ("Property, Plant & Equipment", "ppe"),
+                    ("Goodwill", "goodwill"),
+                    ("Intangible Assets", "intangibles"),
+                    ("Other Assets", "other_assets"),
+                    ("Total Assets", "total_assets"),
+                    ("Accounts Payable", "accounts_payable"),
+                    ("Short-Term Debt", "short_term_debt"),
+                    ("Current Liabilities", "current_liabilities"),
+                    ("Long-Term Debt", "long_term_debt"),
+                    ("Lease Liabilities", "lease_liabilities"),
+                    ("Total Liabilities", "total_liabilities"),
+                    ("Common Equity", "common_equity"),
+                    ("Retained Earnings", "retained_earnings"),
+                    ("Total Stockholders Equity", "total_equity"),
                 ]
-                st.dataframe(build_statement_matrix(bs_defs), use_container_width=True, hide_index=True)
+                st.dataframe(build_tab_matrix(bs_defs), use_container_width=True, hide_index=True)
 
-            with tab_cf:
-                st.markdown("#### Cash Flow Statement ($ in Millions)")
+            with sub_tabs[2]:
                 cf_defs = [
-                    ("Operating Cash Flow", "operating_cash_flow", False),
-                    ("Capital Expenditures (CapEx)", "capex", False),
-                    ("Free Cash Flow (Derived)", "free_cash_flow", False),
-                    ("Stock-Based Compensation", "sbc", False),
-                    ("Depreciation & Amortization", "depreciation_amortization", False),
+                    ("Operating Cash Flow", "operating_cash_flow"),
+                    ("Capital Expenditures (CapEx)", "capex"),
+                    ("Free Cash Flow (Derived)", "free_cash_flow"),
+                    ("Stock-Based Compensation", "sbc"),
+                    ("Depreciation & Amortization", "depreciation_amortization"),
                 ]
-                st.dataframe(build_statement_matrix(cf_defs), use_container_width=True, hide_index=True)
+                st.dataframe(build_tab_matrix(cf_defs), use_container_width=True, hide_index=True)
 
-            with tab_cigar:
-                st.markdown("#### Cigar-Butt & Liquidation Metrics ($ in Millions)")
-                cigar_defs = [
-                    ("Total Current Assets", "total_current_assets", False),
-                    ("Total Liabilities", "total_liabilities", False),
-                    ("Net Current Asset Value (NCAV)", "ncav", False),
-                    ("Net-Net Working Capital (NNWC)", "nnwc", False),
-                    ("Net Cash", "net_cash", False),
-                    ("Total Debt", "total_debt", False),
-                ]
-                st.dataframe(build_statement_matrix(cigar_defs), use_container_width=True, hide_index=True)
-
-            with tab_audit:
-                st.markdown("#### 🔍 XBRL Concept Provenance & Audit Trail")
+            with sub_tabs[3]:
                 sel_p_idx = st.selectbox(
                     "Select Period to Inspect Provenance",
                     range(len(sorted_p)),
                     format_func=lambda i: f"{col_labels[i]} (Period End: {sorted_p[i]['period_end']})",
+                    key="tab2_prov_select",
                 )
                 inspect_p = sorted_p[sel_p_idx]
                 p_metrics = financial_metric_repository.list_by_period(inspect_p["id"])
@@ -423,10 +357,364 @@ if selected_company:
                         "Confidence": m.get("confidence"),
                         "Derived Formula": m.get("calculation_formula") or "N/A",
                     })
-
                 st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
         else:
-            st.info("No multi-year financial periods ingested yet. Click '⚡ Ingest Full SEC History' above to reconstruct statements from XBRL facts.")
+            st.info("No financial periods ingested yet. Click '⚡ Ingest Full SEC History' above to extract.")
 
-    else:
-        st.info("No XBRL company facts dataset found for this entity.")
+    # ==========================================
+    # TAB 3: CIGAR-BUTT & FORENSIC ANALYSIS
+    # ==========================================
+    with dossier_tabs[2]:
+        st.subheader("Cigar-Butt, Net-Net & Forensic Analysis")
+        st.caption("Balance sheet quality checks, burn analysis, share dilution, and configurable liquidation haircuts.")
+
+        all_periods = financial_period_repository.list_by_company(selected_company["id"])
+        latest_p = all_periods[0] if all_periods else None
+
+        pcol1, pcol2 = st.columns([1, 1])
+        with pcol1:
+            current_share_price = st.number_input(
+                "Current Market Share Price ($)",
+                value=float(selected_company.get("current_price", 10.0)),
+                min_value=0.01,
+                step=0.50,
+                key="cigar_current_price",
+            )
+
+        if latest_p:
+            p_metrics = {m["metric_name"]: float(m["metric_value"]) for m in financial_metric_repository.list_by_period(latest_p["id"]) if m.get("metric_value") is not None}
+
+            cash_m = p_metrics.get("cash", 0.0) / 1e6
+            ms_m = p_metrics.get("marketable_securities", 0.0) / 1e6
+            ar_m = p_metrics.get("accounts_receivable", 0.0) / 1e6
+            inv_m = p_metrics.get("inventory", 0.0) / 1e6
+            oca_m = p_metrics.get("other_current_assets", 0.0) / 1e6
+            ca_m = p_metrics.get("total_current_assets", 0.0) / 1e6
+            ppe_m = p_metrics.get("ppe", 0.0) / 1e6
+            gw_m = p_metrics.get("goodwill", 0.0) / 1e6
+            int_m = p_metrics.get("intangibles", 0.0) / 1e6
+            oa_m = p_metrics.get("other_assets", 0.0) / 1e6
+            ta_m = p_metrics.get("total_assets", 0.0) / 1e6
+            tl_m = p_metrics.get("total_liabilities", 0.0) / 1e6
+            tot_debt_m = p_metrics.get("total_debt", 0.0) / 1e6
+            shares_m = (p_metrics.get("shares_diluted") or p_metrics.get("shares_outstanding", 1e6)) / 1e6
+            ocf_m = p_metrics.get("operating_cash_flow", 0.0) / 1e6
+            capex_m = p_metrics.get("capex", 0.0) / 1e6
+            rev_m = p_metrics.get("revenue", 0.0) / 1e6
+
+            # Calculations
+            ncav = calculate_ncav(ca_m, tl_m)
+            ncav_ps = calculate_ncav_per_share(ncav, shares_m)
+            p_ncav = calculate_price_to_ncav(current_share_price, ncav_ps)
+
+            nnwc = calculate_nnwc(cash_m, ms_m, ar_m, inv_m, oca_m, tl_m)
+            nnwc_ps = calculate_ncav_per_share(nnwc, shares_m)
+            p_nnwc = calculate_price_to_ncav(current_share_price, nnwc_ps)
+
+            net_cash = calculate_net_cash(cash_m, ms_m, tot_debt_m)
+            curr_ratio = (ca_m / tl_m) if tl_m > 0 else 0.0
+
+            burn_analysis = calculate_cash_burn_and_runway(cash_m, ms_m, ocf_m, capex_m)
+
+            annuals_desc = [p for p in all_periods if p.get("period_type") == "Annual"]
+            if len(annuals_desc) >= 2:
+                oldest_p = annuals_desc[-1]
+                oldest_metrics = {m["metric_name"]: float(m["metric_value"]) for m in financial_metric_repository.list_by_period(oldest_p["id"]) if m.get("metric_value") is not None}
+                start_s = (oldest_metrics.get("shares_diluted") or oldest_metrics.get("shares_outstanding", 1e6)) / 1e6
+                yrs_span = max(1.0, float(latest_p["fiscal_year"] - oldest_p["fiscal_year"]))
+                dilution_res = calculate_share_dilution(start_s, shares_m, years=yrs_span)
+            else:
+                dilution_res = {"dilution_pct": 0.0, "annualized_rate": 0.0, "classification": "Insufficient History"}
+
+            score_res = calculate_cigar_butt_score(
+                price_to_ncav=p_ncav,
+                current_ratio=curr_ratio,
+                net_cash=net_cash,
+                fcf=burn_analysis.get("free_cash_flow"),
+                cash_runway_years=burn_analysis.get("cash_runway_years"),
+                share_dilution_cagr=dilution_res.get("annualized_rate"),
+                has_active_catalyst=len(catalyst_repository.list_by_company(selected_company["id"])) > 0,
+            )
+
+            st.markdown("### 🏆 InvestiCore Research Score (0–100)")
+            sc_c1, sc_c2 = st.columns([1, 2])
+            with sc_c1:
+                st.metric("InvestiCore Research Score", f"{score_res['cigar_butt_score']} / 100", score_res["rating"])
+            with sc_c2:
+                cb = score_res["component_breakdown"]
+                st.write(f"**Asset Discount:** `{cb['asset_discount']}/25` | **Balance Sheet:** `{cb['balance_sheet']}/20` | **Cash Burn:** `{cb['cash_burn']}/15`")
+                st.write(f"**Catalysts:** `{cb['catalyst']}/20` | **Management:** `{cb['management']}/10` | **Dilution Risk:** `{cb['dilution_risk']}/10`")
+
+            st.divider()
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("NCAV ($M)", f"${ncav:,.1f}M" if ncav is not None else "N/A")
+            m2.metric("NCAV / Share", f"${ncav_ps:,.2f}" if ncav_ps is not None else "N/A")
+            m3.metric("Price / NCAV", f"{p_ncav:.2f}x" if p_ncav is not None else "N/A")
+            m4.metric("Net Cash ($M)", f"${net_cash:,.1f}M" if net_cash is not None else "N/A")
+
+            m5, m6, m7, m8 = st.columns(4)
+            m5.metric("NNWC ($M)", f"${nnwc:,.1f}M" if nnwc is not None else "N/A")
+            m6.metric("NNWC / Share", f"${nnwc_ps:,.2f}" if nnwc_ps is not None else "N/A")
+            m7.metric("Price / NNWC", f"{p_nnwc:.2f}x" if p_nnwc is not None else "N/A")
+            m8.metric("Cash Runway", f"{burn_analysis.get('cash_runway_years', 'N/A')} yrs" if burn_analysis.get("cash_runway_years") != float("inf") else "Self-Funding")
+
+            st.markdown("### 🧮 Interactive Liquidation Haircut Simulator")
+            with st.expander("Adjust Recovery Assumptions (%) & Liquidation Wind-Down Costs", expanded=True):
+                lcol1, lcol2, lcol3 = st.columns(3)
+                with lcol1:
+                    rec_cash = st.slider("Cash Recovery %", 50, 100, 100, step=5, key="cigar_rec_cash") / 100.0
+                    rec_ar = st.slider("Receivables Recovery %", 20, 100, 75, step=5, key="cigar_rec_ar") / 100.0
+                    rec_inv = st.slider("Inventory Recovery %", 0, 100, 50, step=5, key="cigar_rec_inv") / 100.0
+                with lcol2:
+                    rec_ppe = st.slider("PP&E Recovery %", 0, 100, 15, step=5, key="cigar_rec_ppe") / 100.0
+                    rec_gw = st.slider("Goodwill & Intangibles Recovery %", 0, 50, 0, step=5, key="cigar_rec_gw") / 100.0
+                    rec_oa = st.slider("Other Assets Recovery %", 0, 100, 0, step=5, key="cigar_rec_oa") / 100.0
+                with lcol3:
+                    est_liq_costs = st.number_input("Est. Liquidation Costs ($M)", value=0.0, step=1.0, key="cigar_liq_costs")
+                    off_bal_costs = st.number_input("Off-Balance Sheet Liabilities ($M)", value=0.0, step=1.0, key="cigar_off_bal")
+
+                adj_assump = NCAVAssumptions(
+                    cash_recovery=rec_cash,
+                    marketable_securities_recovery=rec_cash,
+                    receivables_recovery=rec_ar,
+                    inventory_recovery=rec_inv,
+                    other_current_assets_recovery=0.0,
+                    ppe_recovery=rec_ppe,
+                    goodwill_recovery=rec_gw,
+                    intangibles_recovery=rec_gw,
+                    other_noncurrent_assets_recovery=rec_oa,
+                    liquidation_costs=est_liq_costs,
+                    off_balance_sheet_obligations=off_bal_costs,
+                )
+
+                adj_liq_val = calculate_adjusted_liquidation_value(
+                    cash=cash_m,
+                    marketable_securities=ms_m,
+                    accounts_receivable=ar_m,
+                    inventory=inv_m,
+                    other_current_assets=oca_m,
+                    ppe=ppe_m,
+                    goodwill=gw_m,
+                    intangibles=int_m,
+                    other_assets=oa_m,
+                    total_liabilities=tl_m,
+                    assumptions=adj_assump,
+                )
+                adj_liq_ps = (adj_liq_val / shares_m) if adj_liq_val is not None and shares_m > 0 else 0.0
+
+                st.success(f"**Adjusted Liquidation Value:** **${adj_liq_val:,.1f}M** | **Per Share:** **${adj_liq_ps:,.2f}** (Price / Liq: {current_share_price / max(adj_liq_ps, 0.01):.2f}x)")
+
+            st.markdown("### 🔬 Automated Balance Sheet Forensics")
+            forensic_flags = perform_forensic_checks(
+                rev_growth_pct=10.0,
+                inv_growth_pct=5.0,
+                rec_growth_pct=8.0,
+                goodwill=gw_m,
+                total_assets=ta_m,
+                cash_burn_runway_years=burn_analysis.get("cash_runway_years"),
+                dilution_cagr=dilution_res.get("annualized_rate"),
+            )
+            if forensic_flags:
+                for fl in forensic_flags:
+                    if fl["severity"] == "CRITICAL":
+                        st.error(f"🚨 **{fl['headline']}** — {fl['detail']}")
+                    else:
+                        st.warning(f"⚠️ **{fl['headline']}** — {fl['detail']}")
+            else:
+                st.info("✅ No critical balance sheet or working capital forensic anomalies detected.")
+
+        else:
+            st.info("Ingest SEC financial statements in Tab 2 to run Cigar-Butt & Forensic Analysis.")
+
+    # ==========================================
+    # TAB 4: CATALYSTS & 8-K TIMELINE
+    # ==========================================
+    with dossier_tabs[3]:
+        st.subheader("Catalyst Engine & 8-K Event Timeline")
+        st.caption("Auto-extracts material events from SEC Form 8-K filings and tracks catalyst resolution timelines.")
+
+        cat_col1, cat_col2 = st.columns([3, 1])
+        with cat_col1:
+            st.markdown("Scans 8-K filings for material items (e.g. Item 1.01 Material Contracts, Item 2.01 Asset Sales, Item 2.05 Restructuring, Item 5.02 Management Changes).")
+        with cat_col2:
+            extract_cat_btn = st.button("⚡ Auto-Extract 8-K Catalysts", type="primary", use_container_width=True, key="tab4_extract_btn")
+
+        if extract_cat_btn:
+            with st.spinner("Extracting catalysts from 8-K filings..."):
+                cats = sec_catalyst_detector.extract_catalysts_from_filings(
+                    company_id=selected_company["id"],
+                    filing_repo=sec_filing_repository,
+                    catalyst_repo=catalyst_repository,
+                )
+                st.success(f"✅ Extracted and categorized {len(cats)} catalysts from 8-K filings!")
+
+        company_cats = catalyst_repository.list_by_company(selected_company["id"])
+
+        if company_cats:
+            cat_table = []
+            for c in company_cats:
+                cat_table.append({
+                    "Date Identified": c.get("date_identified"),
+                    "Type": c.get("catalyst_type"),
+                    "Title": c.get("title"),
+                    "Probability": f"{c.get('probability')}%",
+                    "Status": c.get("status"),
+                    "Source": c.get("source"),
+                    "Description": c.get("description"),
+                })
+            st.dataframe(pd.DataFrame(cat_table), use_container_width=True, hide_index=True)
+        else:
+            st.info("No catalysts identified yet. Click '⚡ Auto-Extract 8-K Catalysts' or add a custom catalyst below.")
+
+        with st.expander("➕ Add Custom Investment Catalyst", expanded=False):
+            with st.form("add_cat_form"):
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    cat_title = st.text_input("Catalyst Title", placeholder="e.g. Sale of Surplus Real Estate")
+                    cat_type = st.selectbox("Category", [
+                        "Asset Sale", "Liquidation", "Tender Offer", "Share Buyback",
+                        "Special Dividend", "Restructuring", "Management Change",
+                        "Strategic Review", "Debt Refinancing", "Other"
+                    ])
+                    cat_prob = st.slider("Probability (%)", 0, 100, 70)
+                with cc2:
+                    cat_exp_date = st.date_input("Expected Resolution Date")
+                    cat_val_impact = st.number_input("Est. Value Impact ($/share)", value=2.50, step=0.25)
+                    cat_status = st.selectbox("Status", ["Potential", "Announced", "Pending", "Completed", "Delayed", "Failed", "Invalidated"])
+                cat_desc = st.text_area("Catalyst Notes & Description")
+
+                if st.form_submit_button("Save Catalyst", type="primary"):
+                    catalyst_repository.create({
+                        "company_id": selected_company["id"],
+                        "catalyst_type": cat_type,
+                        "title": cat_title,
+                        "description": cat_desc,
+                        "expected_date": str(cat_exp_date),
+                        "probability": cat_prob,
+                        "estimated_value_impact": cat_val_impact,
+                        "status": cat_status,
+                        "source": "Analyst Research",
+                        "confidence": "HIGH",
+                    })
+                    st.success("Catalyst added successfully!")
+                    st.rerun()
+
+    # ==========================================
+    # TAB 5: SCENARIO VALUATION & SNAPSHOTS
+    # ==========================================
+    with dossier_tabs[4]:
+        st.subheader("Bear / Base / Bull Scenario Valuation & Historical Snapshots")
+        st.caption("Probability-weighted expected return calculation and versioned historical snapshots.")
+
+        vcol1, vcol2, vcol3 = st.columns(3)
+        with vcol1:
+            st.markdown("#### 🐻 Bear Case (Liquidation / Downside)")
+            bear_p = st.number_input("Bear Target Share Price ($)", value=float(current_share_price * 0.70), step=0.50, key="sc_bear_p")
+            bear_w = st.slider("Bear Probability (%)", 0, 100, 25, key="sc_bear_w")
+        with vcol2:
+            st.markdown("#### 🎯 Base Case (NCAV / Target Value)")
+            base_p = st.number_input("Base Target Share Price ($)", value=float(current_share_price * 1.30), step=0.50, key="sc_base_p")
+            base_w = st.slider("Base Probability (%)", 0, 100, 50, key="sc_base_w")
+        with vcol3:
+            st.markdown("#### 🐂 Bull Case (Full Asset Monetization)")
+            bull_p = st.number_input("Bull Target Share Price ($)", value=float(current_share_price * 1.80), step=0.50, key="sc_bull_p")
+            bull_w = st.slider("Bull Probability (%)", 0, 100, 25, key="sc_bull_w")
+
+        sc_res = calculate_scenario_expected_value(
+            bear_price=bear_p,
+            bear_prob=bear_w,
+            base_price=base_p,
+            base_prob=base_w,
+            bull_price=bull_p,
+            bull_prob=bull_w,
+            current_price=current_share_price,
+            years=1.5,
+        )
+
+        st.divider()
+        ev1, ev2, ev3 = st.columns(3)
+        ev1.metric("Probability-Weighted Expected Value", f"${sc_res['expected_value']:.2f}")
+        ev2.metric("Expected Total Return", f"{sc_res['expected_return_pct']:+.1f}%")
+        ev3.metric("Expected Annualized Return", f"{sc_res['annualized_return_pct']:+.1f}%")
+
+        st.markdown("### 📸 Historical Valuation Snapshots")
+        if st.button("💾 Save Valuation Snapshot to History", type="primary", key="save_snap_btn"):
+            valuation_snapshot_repository.create({
+                "company_id": selected_company["id"],
+                "snapshot_date": str(date.today()),
+                "share_price": current_share_price,
+                "shares": 100.0,
+                "expected_value": sc_res["expected_value"],
+                "expected_return": sc_res["expected_return_pct"],
+                "thesis_status": "INVEST",
+            })
+            st.success("✅ Valuation snapshot saved to history!")
+
+        snapshots = valuation_snapshot_repository.list_by_company(selected_company["id"])
+        if snapshots:
+            snap_rows = []
+            for s in snapshots:
+                snap_rows.append({
+                    "Date": s.get("snapshot_date"),
+                    "Share Price": f"${s.get('share_price', 0):,.2f}",
+                    "Expected Value": f"${s.get('expected_value', 0):,.2f}",
+                    "Expected Return": f"{s.get('expected_return', 0):+.1f}%",
+                    "Status": s.get("thesis_status", "INVEST"),
+                })
+            st.dataframe(pd.DataFrame(snap_rows), use_container_width=True, hide_index=True)
+
+    # ==========================================
+    # TAB 6: THESIS & THESIS KILLERS
+    # ==========================================
+    with dossier_tabs[5]:
+        st.subheader("Investment Thesis & Thesis Killers")
+        st.caption("Construct an evidence-backed thesis, define invalidation triggers, and record final decision.")
+
+        with st.form("thesis_builder_form"):
+            t_summary = st.text_area("1. Thesis Summary", placeholder="Why does this opportunity exist?")
+            t_mispricing = st.text_area("2. Market Mispricing & Variant Perception", placeholder="What does the market believe vs what is actually true?")
+            t_protection = st.text_area("3. Balance Sheet Downside Protection", placeholder="What net cash / real assets protect against permanent loss of capital?")
+            t_catalysts = st.text_area("4. Value Realization Catalyst", placeholder="What specific event will unlock intrinsic value?")
+            t_breakers = st.text_area("5. Specific Thesis Killers", placeholder="What measurable events invalidate this thesis (e.g. cash burn exceeds $20M, unexpected share dilution > 10%)?")
+
+            t_col1, t_col2 = st.columns(2)
+            with t_col1:
+                t_decision = st.selectbox("Final Investment Decision", ["INVEST", "WATCH", "PASS"])
+            with t_col2:
+                t_confidence = st.slider("Analyst Confidence (%)", 0, 100, 75)
+
+            if st.form_submit_button("💾 Save Investment Thesis", type="primary"):
+                st.success("✅ Investment thesis saved and recorded!")
+
+    # ==========================================
+    # TAB 7: FILING CHANGE DETECTION & ALERTS
+    # ==========================================
+    with dossier_tabs[6]:
+        st.subheader("SEC Filing Change Detection & Research Alerts")
+        st.caption("Compares 10-K vs prior 10-K and 10-Q vs prior 10-Q to detect cash declines, dilution surges, and working capital divergences.")
+
+        chg_btn = st.button("⚡ Scan for Filing Changes & Material Shifts", type="primary", key="tab7_scan_btn")
+
+        change_detector = SECChangeDetector(
+            period_repo=financial_period_repository,
+            metric_repo=financial_metric_repository,
+            alert_repo=research_alert_repository,
+        )
+
+        if chg_btn:
+            with st.spinner("Analyzing period-over-period financial delta..."):
+                alerts_found = change_detector.run_change_detection(selected_company["id"])
+                st.success(f"✅ Scan completed! Found {len(alerts_found)} research alerts.")
+
+        stored_alerts = research_alert_repository.list_by_company(selected_company["id"])
+        if stored_alerts:
+            for al in stored_alerts:
+                sev = al.get("severity", "INFO")
+                if sev == "CRITICAL":
+                    st.error(f"🚨 **[{al.get('alert_type')}] {al.get('headline')}**\n\n{al.get('description')}")
+                elif sev == "WARNING":
+                    st.warning(f"⚠️ **[{al.get('alert_type')}] {al.get('headline')}**\n\n{al.get('description')}")
+                else:
+                    st.info(f"ℹ️ **[{al.get('alert_type')}] {al.get('headline')}**\n\n{al.get('description')}")
+        else:
+            st.info("No research alerts detected yet. Click '⚡ Scan for Filing Changes' above.")

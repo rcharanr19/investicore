@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from repositories.analysis_repository import AnalysisRepository
+from repositories.catalyst_repository import CatalystRepository
 from repositories.company_repository import CompanyRepository
 from repositories.financial_metric_repository import FinancialMetricRepository
 from repositories.financial_period_repository import FinancialPeriodRepository
 from repositories.financial_repository import FinancialRepository
 from repositories.growth_driver_repository import GrowthDriverRepository
+from repositories.research_alert_repository import ResearchAlertRepository
 from repositories.risk_repository import RiskRepository
 from repositories.scenario_repository import ScenarioRepository
 from repositories.sec_filing_repository import SECFilingRepository
 from repositories.thesis_breaker_repository import ThesisBreakerRepository
+from repositories.valuation_snapshot_repository import ValuationSnapshotRepository
 from services.framework import load_framework
 
 company_repository = CompanyRepository()
@@ -22,6 +25,9 @@ risk_repository = RiskRepository()
 thesis_breaker_repository = ThesisBreakerRepository()
 growth_driver_repository = GrowthDriverRepository()
 sec_filing_repository = SECFilingRepository()
+catalyst_repository = CatalystRepository()
+valuation_snapshot_repository = ValuationSnapshotRepository()
+research_alert_repository = ResearchAlertRepository()
 
 
 def seed_core_data() -> None:

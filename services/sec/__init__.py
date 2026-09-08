@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from services.sec.catalysts import SECCatalystDetector, sec_catalyst_detector
 from services.sec.client import SECClient, sec_client
 from services.sec.company import SECCompanyService, format_cik, sec_company_service
 from services.sec.evidence import SECEvidence
@@ -25,6 +26,8 @@ __all__ = [
     "sec_concept_mapper",
     "SECStatementReconstructor",
     "sec_statement_reconstructor",
+    "SECCatalystDetector",
+    "sec_catalyst_detector",
     "CONCEPT_MAP",
     "SECEvidence",
 ]
