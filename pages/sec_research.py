@@ -3,13 +3,20 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from database.store import company_repository, sec_filing_repository
+from database.store import (
+    company_repository,
+    financial_metric_repository,
+    financial_period_repository,
+    financial_repository,
+    sec_filing_repository,
+)
 from services.ncav import calculate_ncav, calculate_ncav_per_share, calculate_net_cash, calculate_nnwc, calculate_price_to_ncav
 from services.sec import (
     format_cik,
     sec_company_service,
     sec_concept_mapper,
     sec_filing_service,
+    sec_statement_reconstructor,
     sec_submissions_service,
     sec_xbrl_service,
 )
@@ -248,6 +255,178 @@ if selected_company:
                 )
         if prov_rows:
             st.dataframe(pd.DataFrame(prov_rows), use_container_width=True, hide_index=True)
+
+        # --- SECTION 4: MULTI-YEAR RECONSTRUCTION & STATEMENT EXPLORER ---
+        st.divider()
+        st.subheader("4. Multi-Year Historical Financial Statements (5-Yr Annual & 8-Qtr)")
+        st.caption("Reconstructs normalized Income Statement, Balance Sheet, and Cash Flow Statements directly from SEC XBRL company facts.")
+
+        recon_col1, recon_col2, recon_col3 = st.columns([2, 1, 1])
+        with recon_col1:
+            st.markdown("Populates `financial_periods`, `financial_metrics`, and InvestiCore `financials` tables with complete concept provenance.")
+        with recon_col2:
+            ann_limit_val = st.number_input("Annual Years", min_value=3, max_value=10, value=5, step=1)
+        with recon_col3:
+            st.write("")
+            st.write("")
+            reconstruct_btn = st.button("⚡ Ingest Full SEC History", type="primary", use_container_width=True)
+
+        if reconstruct_btn:
+            with st.spinner(f"Ingesting multi-year financial statements for CIK {selected_company.get('cik') or cik}..."):
+                recon_res = sec_statement_reconstructor.ingest_and_save_full_history(
+                    company_id=selected_company["id"],
+                    cik=selected_company.get("cik") or cik,
+                    period_repository=financial_period_repository,
+                    metric_repository=financial_metric_repository,
+                    financial_repository=financial_repository,
+                    annual_limit=int(ann_limit_val),
+                    quarterly_limit=8,
+                )
+                if recon_res.get("status") == "success":
+                    st.success(
+                        f"✅ Ingestion complete! Saved {recon_res['annual_periods_count']} Annual Periods, "
+                        f"{recon_res['quarterly_periods_count']} Quarterly Periods, and {recon_res['total_metrics_saved']} normalized XBRL metrics."
+                    )
+                else:
+                    st.error(recon_res.get("message", "Error during statement ingestion."))
+
+        # View Reconstructed Statements
+        existing_periods = financial_period_repository.list_by_company(selected_company["id"])
+        annual_p_list = [p for p in existing_periods if p.get("period_type") == "Annual"]
+        quarterly_p_list = [p for p in existing_periods if p.get("period_type") == "Quarterly"]
+
+        view_mode = st.radio("Statement Frequency", ["Annual (Multi-Year)", "Quarterly (Multi-Period)"], horizontal=True)
+        active_periods = annual_p_list if "Annual" in view_mode else quarterly_p_list
+
+        if active_periods:
+            tab_is, tab_bs, tab_cf, tab_cigar, tab_audit = st.tabs([
+                "📊 Income Statement",
+                "🏦 Balance Sheet",
+                "💵 Cash Flow Statement",
+                "📉 Cigar-Butt & Net-Net",
+                "🔍 Concept Provenance Audit",
+            ])
+
+            # Prepare columns (periods sorted chronologically)
+            sorted_p = sorted(active_periods, key=lambda x: str(x.get("period_end") or ""))
+            col_labels = [
+                f"FY{p['fiscal_year']}" if p.get("period_type") == "Annual" else f"{p['fiscal_year']} {p.get('fiscal_period', '')}"
+                for p in sorted_p
+            ]
+
+            # Helper to build matrix for a set of metrics
+            def build_statement_matrix(metric_defs: list[tuple[str, str, bool]]):
+                rows = []
+                for label, m_name, is_header in metric_defs:
+                    row_data = {"Metric ($M)": label}
+                    for p, col_name in zip(sorted_p, col_labels):
+                        p_metrics = financial_metric_repository.list_by_period(p["id"])
+                        m_rec = next((m for m in p_metrics if m["metric_name"] == m_name), None)
+                        if m_rec and m_rec.get("metric_value") is not None:
+                            val = float(m_rec["metric_value"])
+                            # If metric is per share, display as raw decimal, else convert to $M
+                            if "eps" in m_name:
+                                row_data[col_name] = f"${val:,.2f}"
+                            elif "shares" in m_name:
+                                row_data[col_name] = f"{(val / 1_000_000.0):,.1f}M"
+                            else:
+                                row_data[col_name] = f"${(val / 1_000_000.0):,.1f}M"
+                        else:
+                            row_data[col_name] = "-"
+                    rows.append(row_data)
+                return pd.DataFrame(rows)
+
+            with tab_is:
+                st.markdown("#### Income Statement ($ in Millions)")
+                is_defs = [
+                    ("Revenue", "revenue", False),
+                    ("Cost of Goods Sold (COGS)", "cogs", False),
+                    ("Gross Profit", "gross_profit", False),
+                    ("Operating Expenses", "operating_expenses", False),
+                    ("Operating Income", "operating_income", False),
+                    ("Interest Expense", "interest_expense", False),
+                    ("Pre-Tax Income", "pretax_income", False),
+                    ("Income Tax Expense", "income_tax", False),
+                    ("Net Income", "net_income", False),
+                    ("Diluted EPS ($)", "eps_diluted", False),
+                    ("Diluted Shares", "shares_diluted", False),
+                ]
+                st.dataframe(build_statement_matrix(is_defs), use_container_width=True, hide_index=True)
+
+            with tab_bs:
+                st.markdown("#### Balance Sheet ($ in Millions)")
+                bs_defs = [
+                    ("Cash & Cash Equivalents", "cash", False),
+                    ("Marketable Securities", "marketable_securities", False),
+                    ("Accounts Receivable", "accounts_receivable", False),
+                    ("Inventory", "inventory", False),
+                    ("Other Current Assets", "other_current_assets", False),
+                    ("Total Current Assets", "total_current_assets", False),
+                    ("Property, Plant & Equipment", "ppe", False),
+                    ("Goodwill", "goodwill", False),
+                    ("Intangible Assets", "intangibles", False),
+                    ("Other Non-Current Assets", "other_assets", False),
+                    ("Total Assets", "total_assets", False),
+                    ("Accounts Payable", "accounts_payable", False),
+                    ("Short-Term Debt", "short_term_debt", False),
+                    ("Current Liabilities", "current_liabilities", False),
+                    ("Long-Term Debt", "long_term_debt", False),
+                    ("Lease Liabilities", "lease_liabilities", False),
+                    ("Total Liabilities", "total_liabilities", False),
+                    ("Common Equity", "common_equity", False),
+                    ("Retained Earnings", "retained_earnings", False),
+                    ("Total Stockholders Equity", "total_equity", False),
+                ]
+                st.dataframe(build_statement_matrix(bs_defs), use_container_width=True, hide_index=True)
+
+            with tab_cf:
+                st.markdown("#### Cash Flow Statement ($ in Millions)")
+                cf_defs = [
+                    ("Operating Cash Flow", "operating_cash_flow", False),
+                    ("Capital Expenditures (CapEx)", "capex", False),
+                    ("Free Cash Flow (Derived)", "free_cash_flow", False),
+                    ("Stock-Based Compensation", "sbc", False),
+                    ("Depreciation & Amortization", "depreciation_amortization", False),
+                ]
+                st.dataframe(build_statement_matrix(cf_defs), use_container_width=True, hide_index=True)
+
+            with tab_cigar:
+                st.markdown("#### Cigar-Butt & Liquidation Metrics ($ in Millions)")
+                cigar_defs = [
+                    ("Total Current Assets", "total_current_assets", False),
+                    ("Total Liabilities", "total_liabilities", False),
+                    ("Net Current Asset Value (NCAV)", "ncav", False),
+                    ("Net-Net Working Capital (NNWC)", "nnwc", False),
+                    ("Net Cash", "net_cash", False),
+                    ("Total Debt", "total_debt", False),
+                ]
+                st.dataframe(build_statement_matrix(cigar_defs), use_container_width=True, hide_index=True)
+
+            with tab_audit:
+                st.markdown("#### 🔍 XBRL Concept Provenance & Audit Trail")
+                sel_p_idx = st.selectbox(
+                    "Select Period to Inspect Provenance",
+                    range(len(sorted_p)),
+                    format_func=lambda i: f"{col_labels[i]} (Period End: {sorted_p[i]['period_end']})",
+                )
+                inspect_p = sorted_p[sel_p_idx]
+                p_metrics = financial_metric_repository.list_by_period(inspect_p["id"])
+
+                audit_rows = []
+                for m in p_metrics:
+                    val_str = f"${m['metric_value']:,.2f}" if "eps" in m["metric_name"] else f"{m['metric_value']:,} {m.get('unit', '')}"
+                    audit_rows.append({
+                        "Canonical Metric": m["metric_name"],
+                        "Reported Value": val_str,
+                        "Source Concept": m.get("source_concept"),
+                        "Source Type": m.get("source_type"),
+                        "Confidence": m.get("confidence"),
+                        "Derived Formula": m.get("calculation_formula") or "N/A",
+                    })
+
+                st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("No multi-year financial periods ingested yet. Click '⚡ Ingest Full SEC History' above to reconstruct statements from XBRL facts.")
 
     else:
         st.info("No XBRL company facts dataset found for this entity.")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from repositories.analysis_repository import AnalysisRepository
 from repositories.company_repository import CompanyRepository
+from repositories.financial_metric_repository import FinancialMetricRepository
+from repositories.financial_period_repository import FinancialPeriodRepository
 from repositories.financial_repository import FinancialRepository
 from repositories.growth_driver_repository import GrowthDriverRepository
 from repositories.risk_repository import RiskRepository
@@ -13,6 +15,8 @@ from services.framework import load_framework
 company_repository = CompanyRepository()
 analysis_repository = AnalysisRepository()
 financial_repository = FinancialRepository()
+financial_period_repository = FinancialPeriodRepository()
+financial_metric_repository = FinancialMetricRepository()
 scenario_repository = ScenarioRepository()
 risk_repository = RiskRepository()
 thesis_breaker_repository = ThesisBreakerRepository()

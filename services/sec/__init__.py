@@ -5,6 +5,7 @@ from services.sec.company import SECCompanyService, format_cik, sec_company_serv
 from services.sec.evidence import SECEvidence
 from services.sec.filings import SECFilingService, sec_filing_service
 from services.sec.mapper import CONCEPT_MAP, SECConceptMapper, sec_concept_mapper
+from services.sec.statements import SECStatementReconstructor, sec_statement_reconstructor
 from services.sec.submissions import SECSubmissionsService, sec_submissions_service
 from services.sec.xbrl import SECXBRLService, sec_xbrl_service
 
@@ -22,6 +23,8 @@ __all__ = [
     "sec_xbrl_service",
     "SECConceptMapper",
     "sec_concept_mapper",
+    "SECStatementReconstructor",
+    "sec_statement_reconstructor",
     "CONCEPT_MAP",
     "SECEvidence",
 ]
