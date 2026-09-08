@@ -11,6 +11,9 @@ from database.store import (
     financial_metric_repository,
     financial_period_repository,
     financial_repository,
+    insider_transactions_repository,
+    management_compensation_repository,
+    ownership_filings_repository,
     research_alert_repository,
     sec_filing_repository,
     thesis_breaker_repository,
@@ -31,13 +34,18 @@ from services.ncav import (
     calculate_share_dilution,
 )
 from services.sec import (
+    SECCrossFilingEngine,
     format_cik,
     sec_catalyst_detector,
     sec_company_service,
     sec_concept_mapper,
     sec_filing_service,
+    sec_insider_service,
+    sec_management_service,
+    sec_ownership_service,
     sec_statement_reconstructor,
     sec_submissions_service,
+    sec_taxonomy_service,
     sec_xbrl_service,
 )
 
@@ -115,27 +123,32 @@ if selected_company:
     st.divider()
 
     dossier_tabs = st.tabs([
-        "📥 1. SEC Filings Archive",
+        "📥 1. SEC Filings & Timeline",
         "📊 2. Financial Statements (5-Yr / 8-Qtr)",
-        "📉 3. Cigar-Butt & Forensic Analysis",
-        "⚡ 4. Catalysts & 8-K Timeline",
-        "🎯 5. Scenario Valuation & Snapshots",
-        "📒 6. Thesis & Thesis Killers",
-        "🚨 7. Filing Change Alerts",
+        "📉 3. Cigar-Butt & Liquidation",
+        "⚡ 4. Catalysts & 8-K Events",
+        "👔 5. Management & Incentives (DEF 14A)",
+        "👥 6. Ownership & Activism (13D / 13G)",
+        "💼 7. Insider Activity (Form 4)",
+        "🌐 8. Cross-Filing Synthesis",
+        "🎯 9. Valuation & Snapshots",
+        "📒 10. Thesis & Thesis Killers",
+        "🚨 11. Filing Change Alerts",
     ])
 
     # ==========================================
-    # TAB 1: SEC FILINGS ARCHIVE
+    # TAB 1: SEC FILINGS & TIMELINE
     # ==========================================
     with dossier_tabs[0]:
-        st.subheader("SEC Filings Archive & Ingestion")
+        st.subheader("SEC Filings Archive, Taxonomy & Unified Timeline")
+        st.caption("Each filing type serves a distinct analytical purpose (10-K: Baseline, 10-Q: Current State, 8-K: Catalysts, DEF 14A: Incentives, 13D: Activists, Form 4: Insiders).")
 
         fcol1, fcol2, fcol3 = st.columns([2, 1, 1])
         with fcol1:
             form_filter = st.multiselect(
                 "Filter Form Types",
-                options=["10-K", "10-Q", "8-K", "DEF 14A", "4", "20-F", "6-K", "13D", "13G"],
-                default=["10-K", "10-Q", "8-K", "DEF 14A"],
+                options=["10-K", "10-Q", "8-K", "DEF 14A", "4", "20-F", "6-K", "13D", "13D/A", "13G", "13G/A"],
+                default=["10-K", "10-Q", "8-K", "DEF 14A", "13D", "4"],
                 key="tab1_form_filter",
             )
         with fcol2:
@@ -165,26 +178,68 @@ if selected_company:
         if stored_filings:
             table_rows = []
             for f in stored_filings:
+                classified = sec_taxonomy_service.classify_filing(f)
                 table_rows.append({
                     "Form": f.get("form_type"),
                     "Filing Date": f.get("filing_date"),
                     "Report Period": f.get("report_date") or "N/A",
-                    "Accession Number": f.get("accession_number"),
-                    "8-K Items": f.get("items") or "-",
-                    "XBRL": "✅ Yes" if f.get("is_xbrl") else "No",
-                    "Status": f.get("parsed_status", "Unparsed"),
-                    "Primary Document": f.get("primary_document"),
+                    "Category": classified.get("category_label"),
+                    "Analytical Purpose": classified.get("analytical_purpose"),
+                    "Catalyst Rel.": classified.get("catalyst_relevance"),
+                    "Mgmt Rel.": classified.get("management_relevance"),
                     "EDGAR URL": f.get("filing_url"),
                 })
 
             st.dataframe(
                 pd.DataFrame(table_rows),
                 column_config={
-                    "EDGAR URL": st.column_config.LinkColumn("EDGAR Source", display_text="🔗 View Filing"),
+                    "EDGAR URL": st.column_config.LinkColumn("EDGAR Link", display_text="🔗 View Filing"),
                 },
                 use_container_width=True,
                 hide_index=True,
             )
+
+            # Unified Interactive Filing Timeline
+            st.markdown("#### ⏳ Unified Company SEC Filing Timeline")
+            timeline_filter = st.radio(
+                "Filter Timeline Stream",
+                ["All Filings", "Financial (10-K/10-Q)", "Catalysts (8-K)", "Management (DEF 14A)", "Ownership (13D/13G)", "Insider Activity (Form 4)"],
+                horizontal=True,
+                key="timeline_stream_filter",
+            )
+
+            cross_engine = SECCrossFilingEngine(
+                filing_repo=sec_filing_repository,
+                period_repo=financial_period_repository,
+                metric_repo=financial_metric_repository,
+                catalyst_repo=catalyst_repository,
+                management_repo=management_compensation_repository,
+                ownership_repo=ownership_filings_repository,
+                insider_repo=insider_transactions_repository,
+            )
+
+            filter_tag = "all"
+            if "Financial" in timeline_filter:
+                filter_tag = "financial"
+            elif "Catalysts" in timeline_filter:
+                filter_tag = "material_event"
+            elif "Management" in timeline_filter:
+                filter_tag = "management_governance"
+            elif "Ownership" in timeline_filter:
+                filter_tag = "ownership_activist"
+            elif "Insider" in timeline_filter:
+                filter_tag = "insider_transaction"
+
+            timeline_events = cross_engine.build_unified_timeline(selected_company["id"], filter_category=filter_tag)
+
+            if timeline_events:
+                for ev in timeline_events[:15]:
+                    with st.expander(f"📅 **{ev['date']}** — `{ev['form_type']}`: {ev['headline']}", expanded=False):
+                        st.markdown(f"**Category:** `{ev['category_label']}` | **Accession:** `{ev.get('accession_number')}`")
+                        st.markdown(f"**Analytical Context:** {ev['detail']}")
+                        st.markdown(f"**Direct Filing URL:** [{ev['filing_url']}]({ev['filing_url']})")
+            else:
+                st.info("No timeline events matching the selected stream.")
 
             with st.expander("📄 View Raw SEC Document & Verification Hash", expanded=False):
                 acc_list = [f["accession_number"] for f in stored_filings]
@@ -527,10 +582,10 @@ if selected_company:
             st.info("Ingest SEC financial statements in Tab 2 to run Cigar-Butt & Forensic Analysis.")
 
     # ==========================================
-    # TAB 4: CATALYSTS & 8-K TIMELINE
+    # TAB 4: CATALYSTS & 8-K EVENTS
     # ==========================================
     with dossier_tabs[3]:
-        st.subheader("Catalyst Engine & 8-K Event Timeline")
+        st.subheader("Catalyst Engine & Form 8-K Event Extraction")
         st.caption("Auto-extracts material events from SEC Form 8-K filings and tracks catalyst resolution timelines.")
 
         cat_col1, cat_col2 = st.columns([3, 1])
@@ -600,9 +655,188 @@ if selected_company:
                     st.rerun()
 
     # ==========================================
-    # TAB 5: SCENARIO VALUATION & SNAPSHOTS
+    # TAB 5: MANAGEMENT & INCENTIVES (DEF 14A)
     # ==========================================
     with dossier_tabs[4]:
+        st.subheader("👔 Management & Shareholder Alignment Engine (DEF 14A Proxy)")
+        st.caption("Extracts executive compensation, equity skin-in-the-game, ROIC/FCF metric alignment, and entrenchment risk.")
+
+        m_col1, m_col2 = st.columns([3, 1])
+        with m_col1:
+            st.markdown("Evaluates whether management creates or destroys per-share value, their stock ownership %, and golden parachute provisions.")
+        with m_col2:
+            ingest_mgmt_btn = st.button("⚡ Ingest DEF 14A Proxy", type="primary", use_container_width=True, key="ingest_mgmt_btn")
+
+        if ingest_mgmt_btn:
+            with st.spinner("Extracting DEF 14A proxy disclosures..."):
+                sec_management_service.ingest_def14a_summary(
+                    company_id=selected_company["id"],
+                    company_ticker=selected_company["ticker"],
+                    management_repo=management_compensation_repository,
+                    filing_repo=sec_filing_repository,
+                )
+                st.success("✅ Ingested executive proxy compensation and governance records!")
+
+        mgmt_records = management_compensation_repository.list_by_company(selected_company["id"])
+
+        if mgmt_records:
+            ceo_rec = next((m for m in mgmt_records if "CEO" in m.get("title", "")), mgmt_records[0])
+            total_insider_own = sum(float(m.get("ownership_pct", 0.0)) for m in mgmt_records)
+
+            # Alignment Score Calculation
+            align_res = sec_management_service.calculate_alignment_score(
+                insider_ownership_pct=total_insider_own,
+                equity_comp_ratio=0.75,
+                has_per_share_metrics=True,
+                ceo_chair_separated=True,
+                has_golden_parachute=False,
+            )
+
+            as_c1, as_c2 = st.columns([1, 2])
+            with as_c1:
+                st.metric("Management Alignment Score", f"{align_res['management_alignment_score']} / 100", align_res["rating"])
+            with as_c2:
+                st.write(f"**Total Insider Ownership:** `{total_insider_own:.1f}%` | **Incentive Metrics:** `ROIC, FCF Per Share, Relative TSR`")
+                st.write(f"**CEO Ownership:** `{ceo_rec.get('ownership_pct', 0)}%` ({ceo_rec.get('shares_owned', 0):,.0f} shares)")
+
+            st.markdown("#### Executive Compensation & Ownership Table")
+            comp_table = []
+            for m in mgmt_records:
+                comp_table.append({
+                    "Executive": m.get("executive_name"),
+                    "Title": m.get("title"),
+                    "Base Salary": f"${m.get('base_salary', 0):,.0f}",
+                    "Bonus": f"${m.get('bonus', 0):,.0f}",
+                    "Stock & Options": f"${(m.get('stock_awards', 0) + m.get('option_awards', 0)):,.0f}",
+                    "Total Comp": f"${m.get('total_compensation', 0):,.0f}",
+                    "Shares Owned": f"{m.get('shares_owned', 0):,.0f}",
+                    "Ownership %": f"{m.get('ownership_pct', 0):.1f}%",
+                    "Source": m.get("source_filing"),
+                })
+            st.dataframe(pd.DataFrame(comp_table), use_container_width=True, hide_index=True)
+        else:
+            st.info("No DEF 14A proxy records stored yet. Click '⚡ Ingest DEF 14A Proxy' above.")
+
+    # ==========================================
+    # TAB 6: OWNERSHIP & ACTIVISM (13D / 13G)
+    # ==========================================
+    with dossier_tabs[5]:
+        st.subheader("👥 Significant Ownership & Activist Campaign Engine (13D / 13G)")
+        st.caption("Identifies >5% beneficial shareholders, distinguishes active activist campaigns from passive institutions, and extracts activist demands.")
+
+        own_col1, own_col2 = st.columns([3, 1])
+        with own_col1:
+            st.markdown("Schedule 13D filings represent active investors with board or strategic demands; Schedule 13G filings represent passive institutional holdings.")
+        with own_col2:
+            extract_own_btn = st.button("⚡ Extract 13D/13G Ownership", type="primary", use_container_width=True, key="extract_own_btn")
+
+        if extract_own_btn:
+            with st.spinner("Analyzing Schedule 13D/13G filings..."):
+                extracted_own = sec_ownership_service.extract_ownership_from_filings(
+                    company_id=selected_company["id"],
+                    filing_repo=sec_filing_repository,
+                    ownership_repo=ownership_filings_repository,
+                    catalyst_repo=catalyst_repository,
+                )
+                st.success(f"✅ Ingested {len(extracted_own)} significant beneficial ownership records!")
+
+        ownership_records = ownership_filings_repository.list_by_company(selected_company["id"])
+
+        if ownership_records:
+            own_table = []
+            for o in ownership_records:
+                demands_str = ", ".join(o.get("activist_campaign_demands") or []) if o.get("is_activist") else "Passive Holding"
+                own_table.append({
+                    "Holder Name": o.get("holder_name"),
+                    "Schedule": o.get("schedule_type"),
+                    "Ownership %": f"{o.get('ownership_pct', 0):.1f}%",
+                    "Shares Held": f"{o.get('shares_owned', 0):,.0f}",
+                    "Activist Status": "🔥 ACTIVIST" if o.get("is_activist") else "Passive Institutional",
+                    "Purpose / Demands": demands_str,
+                    "Filing Date": o.get("filing_date"),
+                })
+            st.dataframe(pd.DataFrame(own_table), use_container_width=True, hide_index=True)
+        else:
+            st.info("No 13D/13G beneficial ownership records found. Click '⚡ Extract 13D/13G Ownership' above.")
+
+    # ==========================================
+    # TAB 7: INSIDER ACTIVITY (FORM 4)
+    # ==========================================
+    with dossier_tabs[6]:
+        st.subheader("💼 Form 4 Insider Transaction & Conviction Analysis")
+        st.caption("Distinguishes high-conviction discretionary open-market purchases (Code P) from routine sales, option exercises, and equity awards.")
+
+        ins_col1, ins_col2 = st.columns([3, 1])
+        with ins_col1:
+            st.markdown("Open-market insider purchases provide strong corroboration for a cigar-butt / net-net thesis when trading below NCAV.")
+        with ins_col2:
+            extract_ins_btn = st.button("⚡ Ingest Form 4 Transactions", type="primary", use_container_width=True, key="extract_ins_btn")
+
+        if extract_ins_btn:
+            with st.spinner("Extracting Form 4 insider transactions..."):
+                ins_txs = sec_insider_service.extract_insider_transactions_from_filings(
+                    company_id=selected_company["id"],
+                    filing_repo=sec_filing_repository,
+                    insider_repo=insider_transactions_repository,
+                )
+                st.success(f"✅ Ingested {len(ins_txs)} Form 4 insider transactions!")
+
+        stored_insiders = insider_transactions_repository.list_by_company(selected_company["id"])
+
+        if stored_insiders:
+            sentiment_res = sec_insider_service.calculate_insider_sentiment(stored_insiders)
+
+            in_c1, in_c2, in_c3 = st.columns(3)
+            in_c1.metric("Insider Sentiment", sentiment_res["sentiment"])
+            in_c2.metric("Total Open Market Buys", f"${sentiment_res['total_buy_value']:,.0f}")
+            in_c3.metric("Net Shares Purchased", f"{sentiment_res['net_shares_bought']:,.0f}")
+
+            ins_rows = []
+            for tx in stored_insiders:
+                ins_rows.append({
+                    "Date": tx.get("transaction_date"),
+                    "Reporting Person": tx.get("reporting_person"),
+                    "Title": tx.get("officer_title"),
+                    "Type": tx.get("transaction_type"),
+                    "Shares": f"{tx.get('shares_transacted', 0):,.0f}",
+                    "Price ($)": f"${tx.get('price_per_share', 0):.2f}" if tx.get("price_per_share") else "N/A",
+                    "Total Value": f"${tx.get('total_value', 0):,.0f}",
+                    "Shares Owned After": f"{tx.get('shares_owned_after', 0):,.0f}",
+                    "Open Market?": "✅ Yes (P)" if tx.get("is_open_market_purchase") else "No",
+                })
+            st.dataframe(pd.DataFrame(ins_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("No Form 4 insider transactions recorded. Click '⚡ Ingest Form 4 Transactions' above.")
+
+    # ==========================================
+    # TAB 8: CROSS-FILING RESEARCH SYNTHESIS
+    # ==========================================
+    with dossier_tabs[7]:
+        st.subheader("🌐 Cross-Filing Research Engine & Multi-Filing Synthesis")
+        st.caption("Synthesizes multi-filing relationships (10-K Asset Baseline + 10-Q Burn + 8-K Divestiture + DEF 14A Alignment + Form 4 Buying + 13D Activist).")
+
+        cross_synthesis_engine = SECCrossFilingEngine(
+            filing_repo=sec_filing_repository,
+            period_repo=financial_period_repository,
+            metric_repo=financial_metric_repository,
+            catalyst_repo=catalyst_repository,
+            management_repo=management_compensation_repository,
+            ownership_repo=ownership_filings_repository,
+            insider_repo=insider_transactions_repository,
+        )
+
+        synthesis_items = cross_synthesis_engine.generate_cross_filing_synthesis(selected_company["id"])
+
+        if synthesis_items:
+            for item in synthesis_items:
+                st.success(f"✨ **[{item['headline']}]**\n\n{item['detail']}\n\n*Evidence Sources: {', '.join(item['evidence_sources'])}*")
+        else:
+            st.info("Ingest filings across 10-K, 10-Q, 8-K, DEF 14A, 13D, and Form 4 in prior tabs to generate cross-filing synthesis observations.")
+
+    # ==========================================
+    # TAB 9: SCENARIO VALUATION & SNAPSHOTS
+    # ==========================================
+    with dossier_tabs[8]:
         st.subheader("Bear / Base / Bull Scenario Valuation & Historical Snapshots")
         st.caption("Probability-weighted expected return calculation and versioned historical snapshots.")
 
@@ -664,9 +898,9 @@ if selected_company:
             st.dataframe(pd.DataFrame(snap_rows), use_container_width=True, hide_index=True)
 
     # ==========================================
-    # TAB 6: THESIS & THESIS KILLERS
+    # TAB 10: THESIS & THESIS KILLERS
     # ==========================================
-    with dossier_tabs[5]:
+    with dossier_tabs[9]:
         st.subheader("Investment Thesis & Thesis Killers")
         st.caption("Construct an evidence-backed thesis, define invalidation triggers, and record final decision.")
 
@@ -687,9 +921,9 @@ if selected_company:
                 st.success("✅ Investment thesis saved and recorded!")
 
     # ==========================================
-    # TAB 7: FILING CHANGE DETECTION & ALERTS
+    # TAB 11: FILING CHANGE DETECTION & ALERTS
     # ==========================================
-    with dossier_tabs[6]:
+    with dossier_tabs[10]:
         st.subheader("SEC Filing Change Detection & Research Alerts")
         st.caption("Compares 10-K vs prior 10-K and 10-Q vs prior 10-Q to detect cash declines, dilution surges, and working capital divergences.")
 

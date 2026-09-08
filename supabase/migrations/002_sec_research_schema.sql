@@ -194,3 +194,23 @@ ALTER TABLE investicore.ncav_analysis ENABLE ROW LEVEL SECURITY;
 ALTER TABLE investicore.catalysts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE investicore.valuation_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE investicore.research_alerts ENABLE ROW LEVEL SECURITY;
+
+-- Grants for Supabase API access
+GRANT USAGE ON SCHEMA investicore TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA investicore TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA investicore TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA investicore TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA investicore GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
+-- Permissive RLS policies for application access
+DO $$
+DECLARE
+    tbl text;
+BEGIN
+    FOR tbl IN
+        SELECT tablename FROM pg_tables WHERE schemaname = 'investicore'
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Allow all access" ON investicore.%I', tbl);
+        EXECUTE format('CREATE POLICY "Allow all access" ON investicore.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true)', tbl);
+    END LOOP;
+END $$;

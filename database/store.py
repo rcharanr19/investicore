@@ -7,6 +7,9 @@ from repositories.financial_metric_repository import FinancialMetricRepository
 from repositories.financial_period_repository import FinancialPeriodRepository
 from repositories.financial_repository import FinancialRepository
 from repositories.growth_driver_repository import GrowthDriverRepository
+from repositories.insider_repository import InsiderTransactionsRepository
+from repositories.management_repository import ManagementCompensationRepository
+from repositories.ownership_repository import OwnershipFilingsRepository
 from repositories.research_alert_repository import ResearchAlertRepository
 from repositories.risk_repository import RiskRepository
 from repositories.scenario_repository import ScenarioRepository
@@ -28,6 +31,9 @@ sec_filing_repository = SECFilingRepository()
 catalyst_repository = CatalystRepository()
 valuation_snapshot_repository = ValuationSnapshotRepository()
 research_alert_repository = ResearchAlertRepository()
+management_compensation_repository = ManagementCompensationRepository()
+ownership_filings_repository = OwnershipFilingsRepository()
+insider_transactions_repository = InsiderTransactionsRepository()
 
 
 def seed_core_data() -> None:
@@ -230,6 +236,9 @@ __all__ = [
     "catalyst_repository",
     "valuation_snapshot_repository",
     "research_alert_repository",
+    "management_compensation_repository",
+    "ownership_filings_repository",
+    "insider_transactions_repository",
     "seed_core_data",
     "add_company",
     "list_companies",
