@@ -52,6 +52,12 @@ if refresh:
             status.update(label="Refresh failed", state="error")
             st.exception(exc)
 
+if st.button("Archive companion artifacts", icon=":material/folder_zip:"):
+    service = Phase1SECIngestionService(sec_submissions_service, sec_filing_service, client)
+    with st.status("Archiving exhibits and XBRL artifacts", expanded=True) as status:
+        outcome = service.archive_companion_artifacts(company["id"], company["cik"])
+        status.update(label=f"Archived {outcome['archived']} artifacts; {outcome['failed']} filings deferred", state="complete")
+
 filings_result = (
     client.schema("investicorev2").table("sec_filings").select("id,form_type,filing_date,report_date,accession_number,ingestion_status,is_amendment,is_preferred,amends_filing_id,superseded_by_filing_id,sec_url")
     .eq("company_id", company["id"]).order("filing_date", desc=True).execute()

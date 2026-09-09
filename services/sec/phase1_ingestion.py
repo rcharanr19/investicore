@@ -143,8 +143,17 @@ class Phase1SECIngestionService:
 
     @staticmethod
     def _selected_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Select 15 annual filings, four quarterly filings, and 24 months of 8-Ks."""
-        annuals = [f for f in filings if f.get("form_type", "").upper() in ANNUAL_FORMS][:15]
+        """Select 15 annual reporting periods, four quarters, and 24 months of 8-Ks."""
+        annual_by_period: dict[str, dict[str, Any]] = {}
+        for filing in filings:
+            form = filing.get("form_type", "").upper()
+            if form not in ANNUAL_FORMS:
+                continue
+            report_period = str(filing.get("report_date") or filing.get("filing_date"))
+            current = annual_by_period.get(report_period)
+            if current is None or (form.endswith("/A") and not current.get("form_type", "").upper().endswith("/A")):
+                annual_by_period[report_period] = filing
+        annuals = sorted(annual_by_period.values(), key=lambda filing: str(filing.get("filing_date") or ""), reverse=True)[:15]
         quarterlies = [f for f in filings if f.get("form_type", "").upper() in QUARTERLY_FORMS][:4]
         cutoff = (date.today() - timedelta(days=731)).isoformat()
         events = [
@@ -251,15 +260,27 @@ class Phase1SECIngestionService:
                 continue
             storage_path = filing_storage_path(cik, filing["form_type"], filing["accession_number"], artifact["filename"])
             content_type = "application/xml" if artifact["document_type"] == "XBRL" else "text/html"
-            self.client.storage.from_(STORAGE_BUCKET).upload(storage_path, content.encode("utf-8", errors="replace"), {"content-type": content_type, "upsert": "false"})
-            self._table("sec_documents").insert({
+            self.client.storage.from_(STORAGE_BUCKET).upload(storage_path, content.encode("utf-8", errors="replace"), {"content-type": content_type, "upsert": "true"})
+            self._table("sec_documents").upsert({
                 "filing_id": filing["id"], "document_type": artifact["document_type"], "filename": artifact["filename"],
                 "source_url": artifact["source_url"], "storage_bucket": STORAGE_BUCKET, "storage_path": storage_path,
                 "content_type": content_type, "byte_size": len(content.encode("utf-8", errors="replace")),
                 "content_hash": artifact_hash,
-            }).execute()
+            }, on_conflict="filing_id,filename").execute()
             stored += 1
         return stored
+
+    def archive_companion_artifacts(self, company_id: str, cik: int | str, limit: int | None = None) -> dict[str, int]:
+        """Resume archival of exhibits and XBRL artifacts without reprocessing financial data."""
+        filings = self._table("sec_filings").select("*").eq("company_id", company_id).order("filing_date", desc=True).execute().data or []
+        archived = failed = 0
+        for filing in filings[:limit]:
+            try:
+                archived += self._store_filing_artifacts(format_cik(cik), filing)
+            except Exception:
+                failed += 1
+                logger.exception("Companion artifact archive failed for %s", filing["accession_number"])
+        return {"archived": archived, "failed": failed}
 
     def _upsert_period(self, company_id: str, filing: dict[str, Any], period: dict[str, Any]) -> dict[str, Any]:
         payload = {
@@ -295,8 +316,9 @@ class Phase1SECIngestionService:
         for period in matching_periods:
             normalized_period = self._upsert_period(company_id, filing, period)
             metrics = self.reconstructor.reconstruct_statements_for_period(facts, period)
+            metric_payloads = []
             for metric in metrics.values():
-                payload = {
+                metric_payloads.append({
                     "company_id": company_id,
                     "financial_period_id": normalized_period["id"],
                     "metric_name": metric["metric_name"],
@@ -319,12 +341,13 @@ class Phase1SECIngestionService:
                     "calculated_at": datetime.now(timezone.utc).isoformat() if metric.get("is_derived") else None,
                     "source_periods": [fact.get("end") for fact in metric.get("source_facts", [])],
                     "source_fact_ids": [fact.get("accn") for fact in metric.get("source_facts", [])],
-                }
+                })
+            if metric_payloads:
                 self._table("financial_metrics").upsert(
-                    payload,
+                    metric_payloads,
                     on_conflict="financial_period_id,metric_name,source_filing_id,xbrl_namespace,xbrl_tag",
                 ).execute()
-                saved += 1
+                saved += len(metric_payloads)
             self._record_balance_sheet_validation(company_id, filing["id"], normalized_period["id"], metrics)
             self._record_cash_flow_validation(company_id, filing["id"], normalized_period["id"], metrics)
             self._record_period_validations(company_id, filing["id"], normalized_period, metrics)
@@ -342,9 +365,9 @@ class Phase1SECIngestionService:
         rows = company_facts_for_filing(
             company_id, filing["id"], filing["accession_number"], cik, facts
         )
-        for row in rows:
+        for index in range(0, len(rows), 500):
             self._table("sec_xbrl_facts").upsert(
-                row,
+                rows[index:index + 500],
                 on_conflict="company_id,accession_number,taxonomy,xbrl_tag,unit,start_date,end_date,instant_date,frame",
             ).execute()
         return len(rows)
@@ -494,10 +517,11 @@ class Phase1SECIngestionService:
             period_payload, on_conflict="company_id,period_type,fiscal_year,fiscal_period,period_end"
         ).execute().data[0]
         saved = 0
+        metric_payloads = []
         for name, value in ttm.items():
             if name == "period_label" or value is None:
                 continue
-            self._table("financial_metrics").upsert({
+            metric_payloads.append({
                 "company_id": company_id,
                 "financial_period_id": period["id"],
                 "metric_name": name,
@@ -511,11 +535,16 @@ class Phase1SECIngestionService:
                 "calculated_at": datetime.now(timezone.utc).isoformat(),
                 "source_periods": [row["id"] for row in window],
                 "xbrl_tag": f"TTM:{name}",
-            }, on_conflict="financial_period_id,metric_name,source_filing_id,xbrl_namespace,xbrl_tag").execute()
-            saved += 1
+            })
+        if metric_payloads:
+            self._table("financial_metrics").upsert(
+                metric_payloads,
+                on_conflict="financial_period_id,metric_name,source_filing_id,xbrl_namespace,xbrl_tag",
+            ).execute()
+            saved = len(metric_payloads)
         return saved
 
-    def refresh_company_sec_data(self, company_id: str, cik: int | str) -> dict[str, Any]:
+    def refresh_company_sec_data(self, company_id: str, cik: int | str, archive_artifacts: bool = False) -> dict[str, Any]:
         """Discover, deduplicate, and archive only newly required Phase 1 SEC filings."""
         run = self._create_refresh_run(company_id)
         counts = {"discovered_count": 0, "existing_count": 0, "new_count": 0, "downloaded_count": 0, "normalized_count": 0, "failed_count": 0}
@@ -535,7 +564,6 @@ class Phase1SECIngestionService:
                 counts["new_count"] += 1
                 try:
                     document, downloaded = self._store_primary_document(format_cik(cik), filing)
-                    self._store_filing_artifacts(format_cik(cik), filing)
                     counts["normalized_count"] += self._normalize_filing(company_id, format_cik(cik), filing, document)
                     if filing["form_type"] not in ANNUAL_FORMS | QUARTERLY_FORMS:
                         self._table("sec_filings").update({
@@ -543,6 +571,11 @@ class Phase1SECIngestionService:
                             "processed_at": datetime.now(timezone.utc).isoformat(),
                         }).eq("id", filing["id"]).execute()
                     counts["normalized_count"] += self._persist_ttm(company_id)
+                    if archive_artifacts:
+                        try:
+                            self._store_filing_artifacts(format_cik(cik), filing)
+                        except Exception:
+                            logger.exception("Companion artifact archive failed for %s; the primary filing remains complete.", accession)
                     if downloaded:
                         counts["downloaded_count"] += 1
                 except Exception as exc:

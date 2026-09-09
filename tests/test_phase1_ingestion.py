@@ -36,6 +36,16 @@ def test_selected_filings_targets_history_quarters_and_recent_events():
     assert "old-event" not in accessions
 
 
+def test_annual_selection_uses_distinct_reporting_periods_and_prefers_amendment():
+    filings = [
+        {"accession_number": "original", "form_type": "10-K", "filing_date": "2025-01-30", "report_date": "2024-12-31"},
+        {"accession_number": "amendment", "form_type": "10-K/A", "filing_date": "2025-02-10", "report_date": "2024-12-31"},
+        {"accession_number": "oldest", "form_type": "10-K", "filing_date": "2014-01-30", "report_date": "2013-12-31"},
+    ]
+    selected = Phase1SECIngestionService._selected_filings(filings)
+    assert {filing["accession_number"] for filing in selected} == {"amendment", "oldest"}
+
+
 def test_ttm_requires_four_quarters_and_preserves_unknown_values():
     three_quarters = [{"period_end": f"2026-0{month}-30", "metrics": {"revenue": 100}} for month in range(1, 4)]
     assert calculate_ttm_from_quarterly_records(three_quarters) is None
