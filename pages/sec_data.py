@@ -126,26 +126,68 @@ quarterly_history = service.financial_history(company["id"], "Quarterly")
 ttm = service.current_ttm(company["id"])
 
 st.subheader("Financial history")
+display_col, percentage_col = st.columns(2)
+with display_col:
+    display_unit = st.selectbox("Amount unit", ["Millions", "Billions"], index=0)
+with percentage_col:
+    show_yoy = st.checkbox("Show year-over-year change", value=False)
+
+unit_divisor = 1_000_000 if display_unit == "Millions" else 1_000_000_000
+unit_label = "$M" if display_unit == "Millions" else "$B"
+per_share_metrics = {"eps_basic", "eps_diluted"}
+period_metadata = {"id", "fiscal_year", "fiscal_period", "period_end", "source_filing_id"}
+
+
+def financial_display(records: list[dict], period_type: str) -> pd.DataFrame:
+    rows = [{key: value for key, value in row.items() if key != "metrics"} | row["metrics"] for row in records]
+    frame = pd.DataFrame(rows)
+    metric_columns = [column for column in frame.columns if column not in period_metadata]
+    original_values = frame[metric_columns].apply(pd.to_numeric, errors="coerce")
+
+    for column in metric_columns:
+        if column not in per_share_metrics:
+            frame[column] = original_values[column] / unit_divisor
+        else:
+            frame[column] = original_values[column]
+
+    if show_yoy:
+        comparison_periods = 1 if period_type == "Annual" else 4
+        for column in metric_columns:
+            frame[f"{column} YoY %"] = (original_values[column].pct_change(comparison_periods) * 100).round(2)
+    return frame
+
+
 annual_tab, quarterly_tab, ttm_tab = st.tabs(["Annual", "Quarterly", "TTM"])
 with annual_tab:
     if annual_history:
         st.dataframe(
-            pd.DataFrame([{key: value for key, value in row.items() if key != "metrics"} | row["metrics"] for row in annual_history]),
+            financial_display(annual_history, "Annual"),
             hide_index=True,
         )
+        st.caption(f"Amounts shown in {unit_label}; EPS remains per share.")
     else:
         st.info("Annual financial observations appear here after a 10-K is normalized.")
 with quarterly_tab:
     if quarterly_history:
         st.dataframe(
-            pd.DataFrame([{key: value for key, value in row.items() if key != "metrics"} | row["metrics"] for row in quarterly_history]),
+            financial_display(quarterly_history, "Quarterly"),
             hide_index=True,
         )
+        st.caption(f"Amounts shown in {unit_label}; quarterly YoY compares the same fiscal quarter one year earlier.")
     else:
         st.info("Quarterly financial observations appear here after a 10-Q is normalized.")
 with ttm_tab:
     if ttm:
-        st.table({key.replace("_", " ").title(): value for key, value in ttm.items()})
+        ttm_display = {}
+        for key, value in ttm.items():
+            if key == "period_label" or value is None:
+                ttm_display[key.replace("_", " ").title()] = value
+            elif key in per_share_metrics:
+                ttm_display[key.replace("_", " ").title()] = value
+            else:
+                ttm_display[key.replace("_", " ").title()] = float(value) / unit_divisor
+        st.table(ttm_display)
+        st.caption(f"TTM amounts shown in {unit_label}; EPS remains per share.")
     else:
         st.info("TTM becomes available after four quarterly observations are normalized. Annual values are never substituted.")
 
