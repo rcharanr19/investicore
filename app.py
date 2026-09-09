@@ -10,6 +10,7 @@ ensure_database()
 
 pages = [
     st.Page("pages/sec_data.py", title="SEC data", icon=":material/database:"),
+    st.Page("pages/financial_analysis.py", title="Financial analysis", icon=":material/analytics:"),
 ]
 
 nav = st.navigation(pages)
