@@ -518,7 +518,10 @@ class Phase1SECIngestionService:
         run = self._create_refresh_run(company_id)
         counts = {"discovered_count": 0, "existing_count": 0, "new_count": 0, "downloaded_count": 0, "normalized_count": 0, "failed_count": 0}
         try:
-            filings = self._selected_filings(self.submissions.get_all_filings(cik, limit=2000))
+            phase1_forms = sorted(ANNUAL_FORMS | QUARTERLY_FORMS | EVENT_FORMS)
+            filings = self._selected_filings(
+                self.submissions.get_all_filings(cik, form_types=phase1_forms, limit=2000)
+            )
             counts["discovered_count"] = len(filings)
             existing = self._existing_filings(company_id)
             for discovered in filings:
