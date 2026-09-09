@@ -6,6 +6,8 @@ import threading
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
 
+from postgrest.types import ReturnMethod
+
 from database.client import get_supabase_client
 from services.sec.company import format_cik
 from services.sec.financial_interpretation import fiscal_year_duration_status, metric_kind
@@ -479,9 +481,10 @@ class Phase1SECIngestionService:
         rows = facts_for_new_accessions(
             all_company_facts(company_id, cik, facts, filing_ids_by_accession), known_accessions
         )
-        for index in range(0, len(rows), 500):
+        for index in range(0, len(rows), 1000):
             self._table("sec_xbrl_facts").upsert(
-                rows[index:index + 500],
+                rows[index:index + 1000],
+                returning=ReturnMethod.minimal,
                 on_conflict="company_id,accession_number,taxonomy,xbrl_tag,unit,start_date,end_date,instant_date,frame",
             ).execute()
         return len(rows)
