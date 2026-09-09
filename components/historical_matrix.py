@@ -141,9 +141,9 @@ def build_historical_matrix(
             header = f"FY{period['fiscal_year']}"
             value = values_by_period.get(period["id"], {}).get(metric_name)
             display = format_metric_value(value, unit)
-            if include_yoy_change and value is not None and prior_value is not None and prior_value != 0:
+            if include_yoy_change and unit in {"currency", "per_share", "shares"} and value is not None and prior_value is not None and prior_value != 0:
                 change = ((float(value) / prior_value) - 1) * 100
-                display = f"{display}\n{change:+,.1f}%"
+                display = f"{display}\n({change:+,.1f}%)"
             row[header] = display
             try:
                 prior_value = float(value) if value is not None else None

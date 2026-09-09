@@ -28,4 +28,22 @@ def test_historical_matrix_displays_previous_year_change_in_the_same_cell():
     matrix = build_historical_matrix(periods, values, "Income statement", include_yoy_change=True)
     revenue = matrix[matrix["Metric"] == "Revenue"].iloc[0]
     assert revenue["FY2023"] == "$0.0M"
-    assert revenue["FY2024"] == "$0.0M\n+25.0%"
+    assert revenue["FY2024"] == "$0.0M\n(+25.0%)"
+
+
+def test_historical_matrix_does_not_add_yoy_to_existing_percentage_metrics():
+    periods = [{"id": "fy2023", "fiscal_year": 2023}, {"id": "fy2024", "fiscal_year": 2024}]
+    values = {"fy2023": {"revenue_growth": 0.10}, "fy2024": {"revenue_growth": 0.20}}
+    matrix = build_historical_matrix(periods, values, "Growth & margins", include_yoy_change=True)
+    growth = matrix[matrix["Metric"] == "Revenue growth"].iloc[0]
+    assert growth["FY2023"] == "10.0%"
+    assert growth["FY2024"] == "20.0%"
+
+
+def test_historical_matrix_does_not_add_yoy_to_multiple_metrics():
+    periods = [{"id": "fy2023", "fiscal_year": 2023}, {"id": "fy2024", "fiscal_year": 2024}]
+    values = {"fy2023": {"current_ratio": 1.2}, "fy2024": {"current_ratio": 1.5}}
+    matrix = build_historical_matrix(periods, values, "Financial strength", include_yoy_change=True)
+    ratio = matrix[matrix["Metric"] == "Current ratio"].iloc[0]
+    assert ratio["FY2023"] == "1.2x"
+    assert ratio["FY2024"] == "1.5x"
