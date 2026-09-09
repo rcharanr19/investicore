@@ -40,6 +40,31 @@ class SECFilingService:
         content_hash = hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
         return text, content_hash
 
+    def get_filing_artifacts(self, cik: int | str, accession_number: str) -> list[dict[str, str]]:
+        """List downloadable primary, exhibit, and XBRL artifacts from the SEC filing index."""
+        cik_str = format_cik(cik)
+        acc_clean = accession_number.replace("-", "")
+        base_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik_str)}/{acc_clean}"
+        index = self.client.get_json(f"{base_url}/index.json") or {}
+        items = index.get("directory", {}).get("item", [])
+        artifacts = []
+        for item in items:
+            name = str(item.get("name") or "")
+            lowered = name.lower()
+            if not name or lowered in {"index.json", "indexheaders.html"}:
+                continue
+            if lowered.endswith((".htm", ".html", ".xml", ".xsd", ".txt", ".pdf")):
+                document_type = "XBRL" if lowered.endswith((".xml", ".xsd")) else "EXHIBIT"
+                artifacts.append({"filename": name, "source_url": f"{base_url}/{name}", "document_type": document_type})
+        return artifacts
+
+    def fetch_document_url(self, url: str) -> tuple[str | None, str | None]:
+        """Fetch an indexed SEC artifact and return content with its SHA-256 hash."""
+        text = self.client.get_text(url)
+        if text is None:
+            return None, None
+        return text, hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
+
     def sync_company_filings(
         self,
         company_id: str,

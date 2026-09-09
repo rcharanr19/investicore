@@ -7,8 +7,8 @@ from typing import Any
 
 from database.client import get_supabase_client
 from services.sec.company import format_cik
-from services.sec.financial_interpretation import metric_kind
-from services.sec.financial_validation import validate_balance_sheet, validate_cash_flow
+from services.sec.financial_interpretation import fiscal_year_duration_status, metric_kind
+from services.sec.financial_validation import validate_balance_sheet, validate_cash_flow, validate_share_change
 from services.sec.filings import SECFilingService
 from services.sec.statements import SECStatementReconstructor
 from services.sec.submissions import SECSubmissionsService
@@ -121,7 +121,7 @@ class Phase1SECIngestionService:
 
     def financial_history(self, company_id: str, period_type: str) -> list[dict[str, Any]]:
         periods = (
-            self._table("financial_periods").select("id,fiscal_year,fiscal_period,period_end")
+            self._table("financial_periods").select("id,fiscal_year,fiscal_period,period_end,source_filing_id")
             .eq("company_id", company_id).eq("period_type", period_type).order("period_end").execute().data
             or []
         )
@@ -237,6 +237,30 @@ class Phase1SECIngestionService:
         }).eq("id", filing["id"]).execute()
         return result.data[0], True
 
+    def _store_filing_artifacts(self, cik: str, filing: dict[str, Any]) -> int:
+        """Archive SEC-indexed exhibits and XBRL files without duplicating Storage objects or metadata."""
+        stored = 0
+        for artifact in self.filings.get_filing_artifacts(cik, filing["accession_number"]):
+            if artifact["filename"] == filing.get("primary_document"):
+                continue
+            existing = self._table("sec_documents").select("id").eq("filing_id", filing["id"]).eq("filename", artifact["filename"]).execute().data
+            if existing:
+                continue
+            content, artifact_hash = self.filings.fetch_document_url(artifact["source_url"])
+            if content is None or artifact_hash is None:
+                continue
+            storage_path = filing_storage_path(cik, filing["form_type"], filing["accession_number"], artifact["filename"])
+            content_type = "application/xml" if artifact["document_type"] == "XBRL" else "text/html"
+            self.client.storage.from_(STORAGE_BUCKET).upload(storage_path, content.encode("utf-8", errors="replace"), {"content-type": content_type, "upsert": "false"})
+            self._table("sec_documents").insert({
+                "filing_id": filing["id"], "document_type": artifact["document_type"], "filename": artifact["filename"],
+                "source_url": artifact["source_url"], "storage_bucket": STORAGE_BUCKET, "storage_path": storage_path,
+                "content_type": content_type, "byte_size": len(content.encode("utf-8", errors="replace")),
+                "content_hash": artifact_hash,
+            }).execute()
+            stored += 1
+        return stored
+
     def _upsert_period(self, company_id: str, filing: dict[str, Any], period: dict[str, Any]) -> dict[str, Any]:
         payload = {
             "company_id": company_id,
@@ -303,6 +327,7 @@ class Phase1SECIngestionService:
                 saved += 1
             self._record_balance_sheet_validation(company_id, filing["id"], normalized_period["id"], metrics)
             self._record_cash_flow_validation(company_id, filing["id"], normalized_period["id"], metrics)
+            self._record_period_validations(company_id, filing["id"], normalized_period, metrics)
             self._record_mapping_reviews(company_id, filing["id"], metrics)
         return saved
 
@@ -392,6 +417,37 @@ class Phase1SECIngestionService:
             "message": result["message"],
         }).execute()
 
+    def _record_period_validations(
+        self, company_id: str, filing_id: str, period: dict[str, Any], metrics: dict[str, dict[str, Any]]
+    ) -> None:
+        start, end = period.get("period_start"), period.get("period_end")
+        days = None
+        if start and end:
+            days = (date.fromisoformat(str(end)) - date.fromisoformat(str(start))).days + 1
+        fiscal_status = fiscal_year_duration_status(days) if period["period_type"] == "Annual" else "NOT_APPLICABLE"
+        self._table("financial_validation_issues").insert({
+            "company_id": company_id, "financial_period_id": period["id"], "source_filing_id": filing_id,
+            "check_name": "fiscal_year_duration", "validation_type": "fiscal_year_duration", "validation_status": fiscal_status,
+            "severity": "WARNING" if fiscal_status == "REQUIRES_REVIEW" else "INFO",
+            "actual_value": days, "message": "Fiscal year duration classification.",
+        }).execute()
+        current_shares = metrics.get("shares_outstanding", {}).get("value")
+        previous = (
+            self._table("financial_metrics").select("metric_value").eq("company_id", company_id).eq("metric_name", "shares_outstanding")
+            .order("created_at", desc=True).limit(2).execute().data
+            or []
+        )
+        prior_shares = previous[1]["metric_value"] if len(previous) > 1 else None
+        shares = validate_share_change(prior_shares, current_shares)
+        self._table("financial_validation_issues").insert({
+            "company_id": company_id, "financial_period_id": period["id"], "source_filing_id": filing_id,
+            "check_name": shares["validation_type"], "validation_type": shares["validation_type"],
+            "validation_status": shares["validation_status"],
+            "severity": "WARNING" if shares["validation_status"] == "REQUIRES_REVIEW" else "INFO",
+            "expected_value": shares["expected_value"], "actual_value": shares["actual_value"],
+            "difference": shares["difference"], "message": shares["message"],
+        }).execute()
+
     def _normalize_filing(self, company_id: str, cik: str, filing: dict[str, Any], document: dict[str, Any]) -> int:
         if filing["form_type"] not in ANNUAL_FORMS | QUARTERLY_FORMS:
             return 0
@@ -402,9 +458,10 @@ class Phase1SECIngestionService:
         self._table("sec_filings").update({"ingestion_status": "PARSED"}).eq("id", filing["id"]).execute()
         saved = self._persist_metrics(company_id, filing, document, facts)
         self._table("sec_filings").update({
-            "ingestion_status": "NORMALIZED",
+            "ingestion_status": "VALIDATED",
             "processed_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", filing["id"]).execute()
+        self._table("sec_filings").update({"ingestion_status": "COMPLETED"}).eq("id", filing["id"]).execute()
         return saved
 
     def _persist_ttm(self, company_id: str) -> int:
@@ -429,6 +486,7 @@ class Phase1SECIngestionService:
             "calculation_version": "1",
             "calculated_at": datetime.now(timezone.utc).isoformat(),
             "source_period_ids": [row["id"] for row in window],
+            "source_filing_ids": [row["source_filing_id"] for row in window if row.get("source_filing_id")],
         }
         period = self._table("financial_periods").upsert(
             period_payload, on_conflict="company_id,period_type,fiscal_year,fiscal_period,period_end"
@@ -466,13 +524,19 @@ class Phase1SECIngestionService:
             for discovered in filings:
                 accession = discovered["accession_number"]
                 filing = existing.get(accession) or self._upsert_filing(company_id, discovered)
-                if accession in existing and filing.get("ingestion_status") in {"DOWNLOADED", "PARSED", "NORMALIZED"}:
+                if accession in existing and filing.get("ingestion_status") == "COMPLETED":
                     counts["existing_count"] += 1
                     continue
                 counts["new_count"] += 1
                 try:
                     document, downloaded = self._store_primary_document(format_cik(cik), filing)
+                    self._store_filing_artifacts(format_cik(cik), filing)
                     counts["normalized_count"] += self._normalize_filing(company_id, format_cik(cik), filing, document)
+                    if filing["form_type"] not in ANNUAL_FORMS | QUARTERLY_FORMS:
+                        self._table("sec_filings").update({
+                            "ingestion_status": "COMPLETED",
+                            "processed_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("id", filing["id"]).execute()
                     counts["normalized_count"] += self._persist_ttm(company_id)
                     if downloaded:
                         counts["downloaded_count"] += 1

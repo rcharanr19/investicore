@@ -53,7 +53,7 @@ if refresh:
             st.exception(exc)
 
 filings_result = (
-    client.schema("investicorev2").table("sec_filings").select("form_type,filing_date,report_date,accession_number,ingestion_status,sec_url")
+    client.schema("investicorev2").table("sec_filings").select("id,form_type,filing_date,report_date,accession_number,ingestion_status,is_amendment,is_preferred,amends_filing_id,superseded_by_filing_id,sec_url")
     .eq("company_id", company["id"]).order("filing_date", desc=True).execute()
 )
 filings = filings_result.data or []
@@ -73,9 +73,16 @@ for column, (label, value) in zip(st.columns(4), metrics.items()):
 
 st.subheader("Filing archive")
 if filings:
+    for filing in filings:
+        if filing["is_amendment"]:
+            filing["relationship"] = "Preferred amendment" if filing["is_preferred"] else "Amendment"
+        elif filing["superseded_by_filing_id"]:
+            filing["relationship"] = "Superseded by amendment"
+        else:
+            filing["relationship"] = "Preferred" if filing["is_preferred"] else "Historical"
     st.dataframe(
         pd.DataFrame(filings),
-        column_config={"sec_url": st.column_config.LinkColumn("SEC filing")},
+        column_config={"sec_url": st.column_config.LinkColumn("SEC filing"), "id": None, "amends_filing_id": None, "superseded_by_filing_id": None},
         hide_index=True,
     )
 else:

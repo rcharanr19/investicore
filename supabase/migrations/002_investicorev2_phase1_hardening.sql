@@ -10,6 +10,12 @@ ALTER TABLE investicorev2.sec_filings
     ADD COLUMN IF NOT EXISTS is_preferred BOOLEAN NOT NULL DEFAULT TRUE,
     ADD COLUMN IF NOT EXISTS superseded_by_filing_id UUID REFERENCES investicorev2.sec_filings(id) ON DELETE SET NULL;
 
+ALTER TABLE investicorev2.sec_filings
+    DROP CONSTRAINT IF EXISTS sec_filings_ingestion_status_check;
+ALTER TABLE investicorev2.sec_filings
+    ADD CONSTRAINT sec_filings_ingestion_status_check
+    CHECK (ingestion_status IN ('DISCOVERED', 'DOWNLOADING', 'DOWNLOADED', 'PARSED', 'NORMALIZED', 'VALIDATED', 'COMPLETED', 'FAILED', 'REQUIRES_REVIEW'));
+
 ALTER TABLE investicorev2.financial_periods
     ADD COLUMN IF NOT EXISTS is_derived BOOLEAN NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS calculation_method TEXT,
