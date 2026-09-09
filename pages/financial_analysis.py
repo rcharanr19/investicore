@@ -24,28 +24,39 @@ if not companies:
     st.stop()
 
 company = st.selectbox("Company", companies, format_func=lambda row: f"{row['ticker']} - {row.get('legal_name') or row['ticker']}")
-periods = client.schema("investicorev2").table("financial_periods").select("id,period_type,fiscal_year,fiscal_period,period_end").eq("company_id", company["id"]).in_("period_type", ["TTM", "Annual"]).order("period_end", desc=True).execute().data or []
+periods = client.schema("investicorev2").table("financial_periods").select("id,period_type,fiscal_year,fiscal_period,period_end").eq("company_id", company["id"]).in_("period_type", ["TTM", "Annual", "Quarterly"]).order("period_end", desc=True).execute().data or []
 if not periods:
     st.info("No normalized TTM or annual periods are available yet.")
     st.stop()
 
 period = st.selectbox("Financial period", periods, format_func=lambda row: f"{row['period_type']} through {row['period_end']}")
-if st.button("Update Yahoo price and calculate metrics", type="primary", icon=":material/calculate:"):
+if st.button("Update Yahoo price and calculate all metrics", type="primary", icon=":material/calculate:"):
     price = fetch_current_price(company["ticker"])
     if price is None:
         st.warning("Yahoo Finance did not return a current price. SEC-only metrics can still be calculated without market ratios.")
         market_price = None
     else:
         market_price = DerivedMetricsService(client).save_latest_market_price(company["id"], company["ticker"], price)
-    rows = DerivedMetricsService(client).calculate_and_save(company["id"], period["id"], market_price)
-    st.success(f"Calculated {len(rows)} Phase 2 metrics.")
+    saved = DerivedMetricsService(client).calculate_all(company["id"], market_price)
+    st.success(f"Calculated {saved} metrics across annual, quarterly, and TTM periods.")
 
 metrics = client.schema("investicorev2").table("derived_metrics").select("metric_name,metric_value,unit,status,calculation_method,calculated_at").eq("company_id", company["id"]).eq("financial_period_id", period["id"]).order("metric_name").execute().data or []
 if metrics:
     frame = pd.DataFrame(metrics)
     percentage_rows = frame["unit"] == "percentage"
     frame.loc[percentage_rows, "metric_value"] = frame.loc[percentage_rows, "metric_value"].astype(float) * 100
-    st.dataframe(frame, hide_index=True)
+    groups = {
+        "Operating performance": ["revenue", "gross_profit", "ebit", "ebitda", "net_income", "operating_cash_flow", "free_cash_flow"],
+        "Growth and margins": ["revenue_growth", "gross_profit_growth", "operating_income_growth", "net_income_growth", "operating_cash_flow_growth", "free_cash_flow_growth", "gross_margin", "operating_margin", "net_margin", "ocf_margin", "fcf_margin"],
+        "Shares and stock compensation": ["diluted_shares", "shares_yoy_change", "stock_based_compensation", "sbc_to_revenue", "sbc_to_ocf", "sbc_to_fcf", "capex_to_revenue"],
+        "Capital and balance sheet": ["roe", "roa", "roic", "total_debt", "net_debt", "debt_to_equity", "net_debt_to_equity", "net_debt_to_ebitda", "current_ratio", "interest_coverage"],
+        "Market valuation": ["market_cap", "enterprise_value", "price_to_sales", "price_to_earnings", "price_to_ocf", "price_to_fcf", "ev_to_ebit", "ev_to_ebitda", "ev_to_fcf", "earnings_yield", "fcf_yield"],
+    }
+    for heading, metric_names in groups.items():
+        group = frame[frame["metric_name"].isin(metric_names)]
+        if not group.empty:
+            st.subheader(heading)
+            st.dataframe(group, hide_index=True)
 else:
     st.info("Calculate metrics to populate this analysis period.")
 

@@ -1,3 +1,5 @@
+import pytest
+
 from services.derived_metrics import calculate_period_metrics
 from services.sec.activity import parse_form4_xml
 
@@ -15,6 +17,24 @@ def test_calculate_phase2_profitability_share_and_market_ratios():
     assert ratios["sbc_to_revenue"] == 0.04
     assert ratios["debt_to_equity"] == 0.5
     assert ratios["price_to_fcf"] == 1000 / 18
+    assert ratios["gross_margin"] is None
+    assert ratios["net_margin"] == 0.15
+    assert ratios["cfo_to_net_income"] == 25 / 15
+    assert ratios["revenue_growth"] is None
+    assert ratios["ev_to_fcf"] == (1000 + 30 - 10 - 5) / 18
+
+
+def test_calculate_growth_and_margin_metrics_when_prior_values_exist():
+    ratios = calculate_period_metrics(
+        {"revenue": 120, "gross_profit": 72, "operating_income": 24, "net_income": 18, "operating_cash_flow": 30, "free_cash_flow": 21, "sbc": 6},
+        {"revenue": 100, "gross_profit": 55, "operating_income": 20, "net_income": 15, "operating_cash_flow": 25, "free_cash_flow": 18, "sbc": 4},
+    )
+    assert ratios["revenue_growth"] == pytest.approx(0.2)
+    assert ratios["gross_margin"] == 0.6
+    assert ratios["operating_margin"] == 0.2
+    assert ratios["free_cash_flow_growth"] == pytest.approx(21 / 18 - 1)
+    assert ratios["ocf_margin"] == 0.25
+    assert ratios["sbc_to_revenue"] == 0.05
 
 
 def test_negative_earnings_or_cash_flow_do_not_create_price_ratios():
