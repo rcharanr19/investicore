@@ -176,6 +176,10 @@ class Phase1SECIngestionService:
         return result.data[0]
 
     def _update_refresh_run(self, run_id: str, **data: Any) -> None:
+        raw_facts_saved = data.pop("raw_facts_saved", None)
+        if raw_facts_saved is not None:
+            summary = data.get("summary", {})
+            data["summary"] = {**summary, "raw_facts_saved": raw_facts_saved}
         self._table("sec_refresh_runs").update(data).eq("id", run_id).execute()
 
     def _existing_filings(self, company_id: str) -> dict[str, dict[str, Any]]:
