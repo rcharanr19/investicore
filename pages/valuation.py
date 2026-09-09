@@ -5,12 +5,15 @@ import streamlit as st
 from database.store import (
     analysis_repository,
     company_repository,
-    financial_repository,
+    financial_metric_repository,
+    financial_period_repository,
     growth_driver_repository,
     risk_repository,
     scenario_repository,
     thesis_breaker_repository,
 )
+from services.financial_fetcher import fetch_current_price
+from services.normalized_financials import calculate_normalized_ttm, get_latest_normalized_financial
 from services.scenario_engine import calculate_risk_adjusted_valuation, generate_sensitivity_matrix
 from services.scoring import validate_probability_mix
 
@@ -27,6 +30,7 @@ selected_cid = st.selectbox(
     [c["id"] for c in companies],
     format_func=lambda cid: next(f"{c['ticker']} - {c['name']}" for c in companies if c["id"] == cid),
 )
+selected_company = next(c for c in companies if c["id"] == selected_cid)
 
 versions = analysis_repository.get_versions_for_company(selected_cid)
 if not versions:
@@ -39,22 +43,30 @@ selected_aid = st.selectbox(
     format_func=lambda aid: next(f"v{a.get('version_number', 1)} - {a.get('analysis_date', 'Unknown')}" for a in versions if a["id"] == aid),
 )
 
-# Load baseline financial metrics if available (TTM or latest Annual)
-latest_fin = financial_repository.calculate_ttm(selected_cid) or financial_repository.get_latest(selected_cid)
+# Load baseline financial metrics from SEC-normalized data if available (TTM or latest Annual)
+latest_fin = calculate_normalized_ttm(selected_cid, financial_period_repository, financial_metric_repository) or get_latest_normalized_financial(
+    selected_cid,
+    financial_period_repository,
+    financial_metric_repository,
+    period_type="Annual",
+)
 default_rev = float(latest_fin["revenue"]) if latest_fin else 1000.0
 default_cash = float(latest_fin["cash"]) if latest_fin else 0.0
 default_debt = float(latest_fin["debt"]) if latest_fin else 0.0
 default_shares = float(latest_fin["shares_outstanding"]) if latest_fin else 50.0
+default_share_price = fetch_current_price(selected_company["ticker"]) or 100.0
 
 if latest_fin:
-    st.info(f"Baseline Inputs loaded from: **{latest_fin.get('period_label', 'Latest Record')}**")
+    st.info(f"Baseline inputs loaded from SEC-normalized financial metrics: **{latest_fin.get('period_label', 'Latest Record')}**")
+else:
+    st.warning("No SEC-normalized financial metrics found for this company yet. Reconstruct statements from the Companies or SEC Research page before relying on valuation defaults.")
 
 st.subheader("Baseline Inputs")
 b_col1, b_col2, b_col3, b_col4, b_col5 = st.columns(5)
 with b_col1:
     current_revenue = st.number_input("Current Revenue ($M)", value=default_rev, step=100.0)
 with b_col2:
-    current_share_price = st.number_input("Current Share Price ($)", value=100.0, step=1.0)
+    current_share_price = st.number_input("Current Share Price ($)", value=float(default_share_price), step=1.0)
 with b_col3:
     cash = st.number_input("Cash & Equiv ($M)", value=default_cash, step=50.0)
 with b_col4:

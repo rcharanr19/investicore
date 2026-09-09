@@ -73,10 +73,10 @@ CREATE TABLE IF NOT EXISTS investicore.insider_transactions (
 CREATE INDEX IF NOT EXISTS idx_insider_tx_company ON investicore.insider_transactions(company_id);
 CREATE INDEX IF NOT EXISTS idx_insider_tx_open_market ON investicore.insider_transactions(company_id, is_open_market_purchase);
 
--- Disable RLS on new tables for unrestricted API access
-ALTER TABLE investicore.management_compensation DISABLE ROW LEVEL SECURITY;
-ALTER TABLE investicore.ownership_filings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE investicore.insider_transactions DISABLE ROW LEVEL SECURITY;
+-- Enable RLS while preserving current application access via explicit policies.
+ALTER TABLE investicore.management_compensation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.ownership_filings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicore.insider_transactions ENABLE ROW LEVEL SECURITY;
 
 -- Grants for Supabase API access
 GRANT USAGE ON SCHEMA investicore TO anon, authenticated, service_role;
@@ -84,3 +84,14 @@ GRANT ALL ON ALL TABLES IN SCHEMA investicore TO anon, authenticated, service_ro
 GRANT ALL ON ALL SEQUENCES IN SCHEMA investicore TO anon, authenticated, service_role;
 GRANT ALL ON ALL ROUTINES IN SCHEMA investicore TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA investicore GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
+DO $$
+DECLARE
+    tbl text;
+BEGIN
+    FOREACH tbl IN ARRAY ARRAY['management_compensation', 'ownership_filings', 'insider_transactions']
+    LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Allow all access" ON investicore.%I', tbl);
+        EXECUTE format('CREATE POLICY "Allow all access" ON investicore.%I FOR ALL TO anon, authenticated, service_role USING (true) WITH CHECK (true)', tbl);
+    END LOOP;
+END $$;

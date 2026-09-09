@@ -87,6 +87,21 @@ def fetch_company_profile(ticker: str) -> dict[str, Any] | None:
         }
 
 
+def fetch_current_price(ticker: str) -> float | None:
+    """Fetch only the current market share price from yfinance."""
+    clean_ticker = (ticker or "").strip().upper()
+    if not clean_ticker:
+        return None
+
+    try:
+        info = yf.Ticker(clean_ticker).info or {}
+        price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
+        return float(price) if price is not None else None
+    except Exception as e:
+        logger.warning(f"Could not fetch current price for {clean_ticker}: {e}")
+        return None
+
+
 def _parse_statements(
     income_df: pd.DataFrame,
     cashflow_df: pd.DataFrame,

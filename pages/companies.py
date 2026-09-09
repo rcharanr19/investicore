@@ -2,23 +2,20 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from database.store import add_company, company_repository, financial_repository
+from database.store import add_company, company_repository, financial_metric_repository, financial_period_repository
+from services.normalized_financials import (
+    calculate_normalized_cagr,
+    calculate_normalized_ttm,
+    get_normalized_financial_records,
+)
+from services.sec.company import sec_company_service
+from services.sec.statements import sec_statement_reconstructor
 
 st.title("Company Records")
 st.caption("Add, search, and track the companies you are researching")
 
-import pandas as pd
-import plotly.express as px
-import streamlit as st
-
-from database.store import add_company, company_repository, financial_repository
-from services.financial_fetcher import fetch_company_profile, fetch_financial_history
-
-st.title("Company Records")
-st.caption("Add, search, and track the companies you are researching")
-
-with st.expander("⚡ Auto-Fetch New Company & Financial Statements by Ticker", expanded=True):
-    st.markdown("Enter a ticker symbol (e.g. `AAPL`, `MSFT`, `NVDA`, `AMZN`, `GOOGL`) to automatically fetch company profile metadata, market metrics, and historical financial statements.")
+with st.expander("⚡ Add Company & SEC-Normalized Financials by Ticker", expanded=True):
+    st.markdown("Enter a ticker symbol to resolve SEC identity and reconstruct historical financial statements from SEC XBRL company facts.")
     col_auto1, col_auto2 = st.columns([3, 1])
     with col_auto1:
         auto_ticker = st.text_input("Stock Ticker Symbol", placeholder="e.g. NVDA", key="auto_ticker_input")
@@ -31,43 +28,38 @@ with st.expander("⚡ Auto-Fetch New Company & Financial Statements by Ticker", 
         if not auto_ticker.strip():
             st.warning("Please enter a stock ticker symbol.")
         else:
-            with st.spinner(f"Fetching profile and financial statements for {auto_ticker.upper()}..."):
-                prof = fetch_company_profile(auto_ticker)
+            with st.spinner(f"Resolving SEC identity and reconstructing statements for {auto_ticker.upper()}..."):
+                prof = sec_company_service.get_company_by_ticker(auto_ticker)
                 if not prof:
-                    st.error(f"Could not fetch company profile for '{auto_ticker.upper()}'. Please verify ticker symbol.")
+                    st.error(f"Could not resolve '{auto_ticker.upper()}' in the SEC company ticker directory.")
                 else:
                     existing = company_repository.get_by_ticker(prof["ticker"])
+                    company_payload = {
+                        "ticker": prof["ticker"],
+                        "name": prof["name"],
+                        "cik": prof.get("cik"),
+                        "status": "Watchlist",
+                    }
                     if existing:
-                        comp_rec = company_repository.update(existing["id"], prof)
+                        comp_rec = company_repository.update(existing["id"], {"name": prof["name"], "cik": prof.get("cik")})
                         st.info(f"Updated existing record for {prof['name']} ({prof['ticker']}).")
                     else:
-                        comp_rec = add_company(prof)
+                        comp_rec = add_company(company_payload)
                         st.success(f"Created new company record for {prof['name']} ({prof['ticker']})!")
 
                     cid = comp_rec["id"]
-                    hist = fetch_financial_history(prof["ticker"])
-                    ann_count = len(hist.get("annual", []))
-                    q_count = len(hist.get("quarterly", []))
-
-                    for rec in hist.get("annual", []):
-                        financial_repository.create_or_update(
-                            cid,
-                            rec["fiscal_year"],
-                            rec,
-                            period_type="Annual",
-                            fiscal_quarter=None,
-                        )
-
-                    for rec in hist.get("quarterly", []):
-                        financial_repository.create_or_update(
-                            cid,
-                            rec["fiscal_year"],
-                            rec,
-                            period_type="Quarterly",
-                            fiscal_quarter=rec.get("fiscal_quarter"),
-                        )
-
-                    st.success(f"✅ Auto-fetched {ann_count} Annual Statements and {q_count} Quarterly Statements for {prof['name']}!")
+                    recon_res = sec_statement_reconstructor.ingest_and_save_full_history(
+                        company_id=cid,
+                        cik=prof["cik"],
+                        period_repository=financial_period_repository,
+                        metric_repository=financial_metric_repository,
+                        annual_limit=10,
+                        quarterly_limit=8,
+                    )
+                    if recon_res.get("status") == "success":
+                        st.success(f"✅ SEC-normalized {recon_res['annual_periods_count']} annual periods and {recon_res['quarterly_periods_count']} quarterly periods for {prof['name']}.")
+                    else:
+                        st.warning(recon_res.get("message", "Company saved, but SEC statement reconstruction did not complete."))
                     st.rerun()
 
 with st.expander("📝 Manual Add / Edit Company Profile", expanded=False):
@@ -108,7 +100,7 @@ if company_rows:
     st.dataframe(company_rows, use_container_width=True)
 
     st.divider()
-    st.subheader("📊 Financial Data Entry & Historicals")
+    st.subheader("📊 SEC-Normalized Financial Historicals")
 
     selected_cid = st.selectbox(
         "Select Company to view or edit financials",
@@ -123,14 +115,23 @@ if company_rows:
             with c_head1:
                 st.caption(f"Sector: **{current_comp.get('sector', 'N/A')}** | Industry: **{current_comp.get('industry', 'N/A')}** | Website: {current_comp.get('website', 'N/A')}")
             with c_head2:
-                if st.button("⚡ Refresh from Yahoo Finance", key=f"refresh_btn_{selected_cid}", use_container_width=True):
-                    with st.spinner(f"Refreshing financials for {current_comp['ticker']}..."):
-                        hist = fetch_financial_history(current_comp['ticker'])
-                        for rec in hist.get("annual", []):
-                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Annual", fiscal_quarter=None)
-                        for rec in hist.get("quarterly", []):
-                            financial_repository.create_or_update(selected_cid, rec["fiscal_year"], rec, period_type="Quarterly", fiscal_quarter=rec.get("fiscal_quarter"))
-                        st.success(f"Refreshed financials for {current_comp['ticker']}!")
+                if st.button("⚡ Refresh SEC Financials", key=f"refresh_btn_{selected_cid}", use_container_width=True):
+                    if not current_comp.get("cik"):
+                        st.warning("This company needs a SEC CIK before SEC financials can be refreshed.")
+                    else:
+                        with st.spinner(f"Refreshing SEC-normalized financials for {current_comp['ticker']}..."):
+                            recon_res = sec_statement_reconstructor.ingest_and_save_full_history(
+                                company_id=selected_cid,
+                                cik=current_comp["cik"],
+                                period_repository=financial_period_repository,
+                                metric_repository=financial_metric_repository,
+                                annual_limit=10,
+                                quarterly_limit=8,
+                            )
+                            if recon_res.get("status") == "success":
+                                st.success(f"Refreshed SEC-normalized financials for {current_comp['ticker']}!")
+                            else:
+                                st.warning(recon_res.get("message", "SEC refresh did not complete."))
                         st.rerun()
 
         st.divider()
@@ -172,7 +173,7 @@ if company_rows:
         tab_annual, tab_quarterly, tab_ttm = st.tabs(["📅 Annual Statements", "📆 Quarterly Statements", "📊 TTM Summary"])
 
         with tab_annual:
-            fin_records = financial_repository.get_by_company(selected_cid, period_type="Annual")
+            fin_records = get_normalized_financial_records(selected_cid, financial_period_repository, financial_metric_repository, period_type="Annual")
             if fin_records:
                 df_fin = prepare_display_df(fin_records)
                 if "period_label" not in df_fin.columns and "fiscal_year" in df_fin.columns:
@@ -188,10 +189,10 @@ if company_rows:
                 st.dataframe(df_fin[display_cols], use_container_width=True)
 
                 # Metric CAGR Summary Cards
-                c_rev = financial_repository.calculate_historical_cagr(selected_cid, "revenue", period_type="Annual")
-                c_net = financial_repository.calculate_historical_cagr(selected_cid, "net_income", period_type="Annual")
-                c_fcf = financial_repository.calculate_historical_cagr(selected_cid, "free_cash_flow", period_type="Annual")
-                c_eps = financial_repository.calculate_historical_cagr(selected_cid, "eps", period_type="Annual")
+                c_rev = calculate_normalized_cagr(selected_cid, "revenue", financial_period_repository, financial_metric_repository, period_type="Annual")
+                c_net = calculate_normalized_cagr(selected_cid, "net_income", financial_period_repository, financial_metric_repository, period_type="Annual")
+                c_fcf = calculate_normalized_cagr(selected_cid, "free_cash_flow", financial_period_repository, financial_metric_repository, period_type="Annual")
+                c_eps = calculate_normalized_cagr(selected_cid, "eps", financial_period_repository, financial_metric_repository, period_type="Annual")
 
                 cg1, cg2, cg3, cg4 = st.columns(4)
                 with cg1:
@@ -219,7 +220,7 @@ if company_rows:
                 st.info("No annual financial statement records entered for this company yet.")
 
         with tab_quarterly:
-            q_records = financial_repository.get_by_company(selected_cid, period_type="Quarterly")
+            q_records = get_normalized_financial_records(selected_cid, financial_period_repository, financial_metric_repository, period_type="Quarterly")
             if q_records:
                 df_q = prepare_display_df(q_records)
                 if "period_label" not in df_q.columns and "fiscal_year" in df_q.columns:
@@ -234,10 +235,10 @@ if company_rows:
                 st.dataframe(df_q[display_cols_q], use_container_width=True)
 
                 # Quarterly Annualized CAGR Summary Cards
-                cq_rev = financial_repository.calculate_historical_cagr(selected_cid, "revenue", period_type="Quarterly")
-                cq_net = financial_repository.calculate_historical_cagr(selected_cid, "net_income", period_type="Quarterly")
-                cq_fcf = financial_repository.calculate_historical_cagr(selected_cid, "free_cash_flow", period_type="Quarterly")
-                cq_eps = financial_repository.calculate_historical_cagr(selected_cid, "eps", period_type="Quarterly")
+                cq_rev = calculate_normalized_cagr(selected_cid, "revenue", financial_period_repository, financial_metric_repository, period_type="Quarterly")
+                cq_net = calculate_normalized_cagr(selected_cid, "net_income", financial_period_repository, financial_metric_repository, period_type="Quarterly")
+                cq_fcf = calculate_normalized_cagr(selected_cid, "free_cash_flow", financial_period_repository, financial_metric_repository, period_type="Quarterly")
+                cq_eps = calculate_normalized_cagr(selected_cid, "eps", financial_period_repository, financial_metric_repository, period_type="Quarterly")
 
                 qg1, qg2, qg3, qg4 = st.columns(4)
                 with qg1:
@@ -266,7 +267,7 @@ if company_rows:
 
 
         with tab_ttm:
-            ttm_data = financial_repository.calculate_ttm(selected_cid)
+            ttm_data = calculate_normalized_ttm(selected_cid, financial_period_repository, financial_metric_repository)
             if ttm_data:
                 st.subheader(f"Trailing Twelve Months (TTM) — {ttm_data.get('period_label')}")
                 scaled_ttm = dict(ttm_data)
@@ -317,7 +318,7 @@ if company_rows:
             with an_col2:
                 selected_period_type = st.radio("Period Type", ["Annual", "Quarterly"], horizontal=True, key="analyzer_period_type")
 
-            analyzer_records = financial_repository.get_by_company(selected_cid, period_type=selected_period_type)
+            analyzer_records = get_normalized_financial_records(selected_cid, financial_period_repository, financial_metric_repository, period_type=selected_period_type)
             if len(analyzer_records) >= 2:
                 labels = [r["period_label"] for r in analyzer_records]
                 p_col1, p_col2 = st.columns(2)
@@ -416,63 +417,8 @@ if company_rows:
                 st.info(f"Add at least 2 {selected_period_type.lower()} records to use the CAGR & Growth Analyzer.")
 
 
-        with st.expander("📝 Add / Update Financial Record"):
-            with st.form("financial_form"):
-                p_type_input = st.radio("Period Type", ["Annual", "Quarterly"], horizontal=True)
-                col_period1, col_period2 = st.columns(2)
-                with col_period1:
-                    fy = st.number_input("Fiscal Year", min_value=2000, max_value=2030, value=2025, step=1)
-                with col_period2:
-                    fq = 1
-                    if p_type_input == "Quarterly":
-                        fq = st.selectbox("Fiscal Quarter", [1, 2, 3, 4], format_func=lambda q: f"Q{q} (Quarter {q})")
-
-                f_col1, f_col2, f_col3 = st.columns(3)
-                with f_col1:
-                    rev = st.number_input("Revenue ($M)", value=0.0, step=100.0)
-                    gp = st.number_input("Gross Profit ($M)", value=0.0, step=100.0)
-                    op_inc = st.number_input("Operating Income ($M)", value=0.0, step=100.0)
-                    net_inc = st.number_input("Net Income ($M)", value=0.0, step=100.0)
-                with f_col2:
-                    eps_val = st.number_input("EPS ($)", value=0.0, step=0.1)
-                    ocf_val = st.number_input("Operating Cash Flow ($M)", value=0.0, step=100.0)
-                    fcf_val = st.number_input("Free Cash Flow ($M)", value=0.0, step=100.0)
-                    capex_val = st.number_input("CaPex ($M)", value=0.0, step=50.0)
-                with f_col3:
-                    rnd_val = st.number_input("R&D ($M)", value=0.0, step=50.0)
-                    sbc_val = st.number_input("SBC ($M)", value=0.0, step=10.0)
-                    cash_val = st.number_input("Cash & Equiv ($M)", value=0.0, step=500.0)
-                    debt_val = st.number_input("Total Debt ($M)", value=0.0, step=500.0)
-                    shares_val = st.number_input("Shares Outstanding (M)", value=1.0, step=1.0)
-
-                fin_submitted = st.form_submit_button("Save Financial Record")
-                if fin_submitted:
-                    financial_repository.create_or_update(
-                        selected_cid,
-                        int(fy),
-                        {
-                            "period_type": p_type_input,
-                            "fiscal_quarter": fq if p_type_input == "Quarterly" else None,
-                            "revenue": rev,
-                            "gross_profit": gp,
-                            "operating_income": op_inc,
-                            "net_income": net_inc,
-                            "eps": eps_val,
-                            "operating_cash_flow": ocf_val,
-                            "free_cash_flow": fcf_val,
-                            "capex": capex_val,
-                            "rnd": rnd_val,
-                            "sbc": sbc_val,
-                            "cash": cash_val,
-                            "debt": debt_val,
-                            "shares_outstanding": shares_val,
-                        },
-                        period_type=p_type_input,
-                        fiscal_quarter=fq if p_type_input == "Quarterly" else None,
-                    )
-                    label_str = f"{fy} Q{fq}" if p_type_input == "Quarterly" else f"FY{fy}"
-                    st.success(f"Saved {label_str} financials for company!")
-                    st.rerun()
+        with st.expander("🧾 Financial Data Source", expanded=False):
+            st.info("Financial statements on this page are read from SEC-normalized `financial_periods` and `financial_metrics`. Use the SEC refresh controls above or the SEC Research page to reconstruct audited filing data.")
 
 else:
     st.info("No companies match the current search.")

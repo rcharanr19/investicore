@@ -26,6 +26,7 @@ load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SCHEMA = os.getenv("SUPABASE_SCHEMA", "investicorev2")
 
 
 def get_supabase_client():
@@ -62,7 +63,7 @@ def get_db_table(table_name: str):
     if not client:
         return None
     try:
-        return client.schema("investicore").table(table_name)
+        return client.schema(SUPABASE_SCHEMA).table(table_name)
     except Exception:
         return client.table(table_name)
 

@@ -32,6 +32,7 @@ CONCEPT_MAP: dict[str, list[str]] = {
         "PrepaidExpenseAndOtherAssetsCurrent",
         "PrepaidExpenseCurrent",
     ],
+    "deferred_revenue": ["ContractWithCustomerLiabilityCurrent", "DeferredRevenueCurrent"],
     "total_current_assets": [
         "AssetsCurrent",
     ],
@@ -82,6 +83,8 @@ CONCEPT_MAP: dict[str, list[str]] = {
         "OtherLiabilitiesNoncurrent",
         "OtherLiabilitiesCurrent",
     ],
+    "deferred_tax_liabilities": ["DeferredTaxLiabilitiesNoncurrent", "DeferredIncomeTaxLiabilitiesNet"],
+    "deferred_tax_assets": ["DeferredTaxAssetsNet", "DeferredIncomeTaxAssetsNet"],
     "total_liabilities": [
         "Liabilities",
     ],
@@ -165,6 +168,11 @@ CONCEPT_MAP: dict[str, list[str]] = {
         "DepreciationAndAmortization",
         "Depreciation",
     ],
+    "cash_flow_investing": ["NetCashProvidedByUsedInInvestingActivities"],
+    "cash_flow_financing": ["NetCashProvidedByUsedInFinancingActivities"],
+    "cash_beginning": ["CashAndCashEquivalentsAtCarryingValue"],
+    "cash_ending": ["CashAndCashEquivalentsAtCarryingValue"],
+    "cash_flow_fx_effect": ["EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
     # --- SHARES ---
     "shares_outstanding": [
         "CommonStockSharesOutstanding",

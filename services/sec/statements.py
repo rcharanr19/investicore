@@ -7,6 +7,7 @@ from repositories.financial_metric_repository import FinancialMetricRepository
 from repositories.financial_period_repository import FinancialPeriodRepository
 from repositories.financial_repository import FinancialRepository
 from services.ncav import calculate_ncav, calculate_net_cash, calculate_nnwc
+from services.sec.financial_interpretation import metric_kind, reconstruct_discrete_quarter
 from services.sec.mapper import CONCEPT_MAP, SECConceptMapper
 from services.sec.xbrl import SECXBRLService, sec_xbrl_service
 
@@ -76,6 +77,19 @@ class SECStatementReconstructor:
                                     "filed": filed,
                                     "accn": accn,
                                 }
+                            # A 10-K supplies the annual value needed to derive Q4.
+                            q_key = f"{fy}_Q4"
+                            quarterly_map.setdefault(q_key, {
+                                "period_type": "Quarterly",
+                                "fiscal_year": int(fy),
+                                "fiscal_period": "Q4",
+                                "fiscal_quarter": 4,
+                                "period_start": start,
+                                "period_end": end,
+                                "form": form,
+                                "filed": filed,
+                                "accn": accn,
+                            })
 
                         # Quarterly Period Detection: Q1, Q2, Q3, Q4
                         if fp in ("Q1", "Q2", "Q3", "Q4") or "10-Q" in form:
@@ -143,6 +157,33 @@ class SECStatementReconstructor:
             units = c_data.get("units", {})
             label = c_data.get("label", concept)
 
+            if p_type == "Quarterly" and metric_kind(metric_name) == "flow":
+                raw_facts = []
+                for unit_name, items in units.items():
+                    for item in items:
+                        if item.get("fy") == p_fy and item.get("val") is not None and item.get("start"):
+                            raw_facts.append({**item, "unit": unit_name})
+                discrete = reconstruct_discrete_quarter(metric_name, str(p_fp), str(p_end), raw_facts)
+                if discrete:
+                    primary = discrete["source_facts"][0]
+                    return {
+                        "metric_name": metric_name,
+                        "value": discrete["value"],
+                        "unit": primary["unit"],
+                        "source_concept": concept,
+                        "source_label": label,
+                        "source_type": "XBRL" if discrete["method"] == "direct_quarter" else "DERIVED",
+                        "confidence": "HIGH" if idx == 0 else "MEDIUM",
+                        "accession_number": primary.get("accn"),
+                        "filing_date": primary.get("filed"),
+                        "form": primary.get("form"),
+                        "period_end": p_end,
+                        "period_start": primary.get("start"),
+                        "is_derived": discrete["method"] != "direct_quarter",
+                        "calculation_formula": discrete["method"],
+                        "source_facts": discrete["source_facts"],
+                    }
+
             best_match = None
             for u_name, items in units.items():
                 for item in items:
@@ -202,6 +243,7 @@ class SECStatementReconstructor:
             "accounts_receivable",
             "inventory",
             "other_current_assets",
+            "deferred_revenue",
             "total_current_assets",
             "ppe",
             "goodwill",
@@ -214,6 +256,8 @@ class SECStatementReconstructor:
             "long_term_debt",
             "lease_liabilities",
             "other_liabilities",
+            "deferred_tax_liabilities",
+            "deferred_tax_assets",
             "total_liabilities",
             "common_equity",
             "preferred_equity",
@@ -237,6 +281,11 @@ class SECStatementReconstructor:
             "capex",
             "sbc",
             "depreciation_amortization",
+            "cash_flow_investing",
+            "cash_flow_financing",
+            "cash_beginning",
+            "cash_ending",
+            "cash_flow_fx_effect",
             # Shares
             "shares_outstanding",
             "shares_diluted",

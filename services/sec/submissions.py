@@ -9,6 +9,7 @@ from services.sec.company import format_cik
 logger = logging.getLogger(__name__)
 
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+SEC_SUBMISSIONS_ARCHIVE_URL = "https://data.sec.gov/submissions/{filename}"
 
 
 class SECSubmissionsService:
@@ -117,6 +118,41 @@ class SECSubmissionsService:
                 break
 
         return filings
+
+    def get_all_filings(
+        self,
+        cik: int | str,
+        form_types: list[str] | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Return recent filings plus SEC-provided historical submission archives.
+
+        SEC places older filings in the `filings.files` archives, so using only
+        `filings.recent` cannot reliably satisfy a 15-year annual history.
+        """
+        submission = self.get_submissions(cik)
+        if not submission:
+            return []
+
+        merged = self.get_recent_filings(cik, form_types=form_types, limit=limit)
+        for archive in submission.get("filings", {}).get("files", []):
+            filename = archive.get("name")
+            if not filename or len(merged) >= limit:
+                continue
+            archive_data = self.client.get_json(SEC_SUBMISSIONS_ARCHIVE_URL.format(filename=filename))
+            if not archive_data:
+                continue
+            archive_submission = {"filings": {"recent": archive_data}}
+            original_get_submissions = self.get_submissions
+            try:
+                self.get_submissions = lambda *args, **kwargs: archive_submission  # type: ignore[method-assign]
+                remaining = max(0, limit - len(merged))
+                merged.extend(self.get_recent_filings(cik, form_types=form_types, limit=remaining))
+            finally:
+                self.get_submissions = original_get_submissions  # type: ignore[method-assign]
+
+        unique = {filing["accession_number"]: filing for filing in merged}
+        return sorted(unique.values(), key=lambda filing: filing["filing_date"], reverse=True)[:limit]
 
 
 # Global singleton instance
