@@ -121,6 +121,12 @@ class SECStatementReconstructor:
                                         "accn": accn,
                                     }
 
+        # An annual fact can only yield a Q4 value when the issuer also reported Q3 YTD.
+        quarterly_map = {
+            key: value for key, value in quarterly_map.items()
+            if value["fiscal_period"] != "Q4" or f"{value['fiscal_year']}_Q3" in quarterly_map
+        }
+
         # Sort annual desc by fiscal year
         sorted_annual = sorted(annual_map.values(), key=lambda x: x["fiscal_year"], reverse=True)
         # Sort quarterly desc by period end

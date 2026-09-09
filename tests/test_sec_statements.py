@@ -89,9 +89,10 @@ def test_discover_periods(sample_xbrl_facts):
     assert annuals[1]["fiscal_year"] == 2023
     assert annuals[2]["fiscal_year"] == 2022
 
-    assert len(quarterlies) == 2
-    assert quarterlies[0]["fiscal_period"] == "Q3"
-    assert quarterlies[1]["fiscal_period"] == "Q2"
+    assert len(quarterlies) == 3
+    assert quarterlies[0]["fiscal_period"] == "Q4"
+    assert quarterlies[1]["fiscal_period"] == "Q3"
+    assert quarterlies[2]["fiscal_period"] == "Q2"
 
 
 def test_reconstruct_statements_for_period(sample_xbrl_facts):
@@ -139,12 +140,12 @@ def test_ingest_and_save_full_history(sample_xbrl_facts):
 
     assert result["status"] == "success"
     assert result["annual_periods_count"] == 3
-    assert result["quarterly_periods_count"] == 2
+    assert result["quarterly_periods_count"] == 3
     assert result["total_metrics_saved"] > 0
 
     # Verify period repo
     periods = period_repo.list_by_company("comp-100")
-    assert len(periods) == 5
+    assert len(periods) == 6
 
     # Verify core financial repo was populated with $M values
     ann_fin = fin_repo.get_by_company("comp-100", period_type="Annual")
