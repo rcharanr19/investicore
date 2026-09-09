@@ -19,6 +19,11 @@ if client is None:
 
 with st.form("company_lookup"):
     ticker = st.text_input("Ticker", placeholder="AAPL")
+    download_html = st.checkbox(
+        "Archive primary SEC HTML filings in the background",
+        value=False,
+        help="The financial refresh returns immediately. A background worker archives missing primary filing HTML in Supabase Storage.",
+    )
     refresh = st.form_submit_button("Refresh SEC data", type="primary", icon=":material/refresh:")
 
 if not ticker.strip():
@@ -45,8 +50,19 @@ if refresh:
     with st.status("Refreshing SEC data", expanded=True) as status:
         st.write("Discovering required filings and comparing accession numbers.")
         try:
-            outcome = service.refresh_company_sec_data(company["id"], company["cik"])
-            st.write(f"Discovered {outcome['discovered_count']} filings; downloaded {outcome['downloaded_count']} new documents.")
+            outcome = service.refresh_company_sec_data(
+                company["id"], company["cik"]
+            )
+            st.write(
+                f"Discovered {outcome['discovered_count']} filings; persisted {outcome['raw_facts_saved']} new raw facts; "
+                f"processed {outcome['normalized_count']} financial records."
+            )
+            if download_html:
+                started = service.start_primary_html_download(company["id"], company["cik"])
+                if started:
+                    st.toast("Primary SEC HTML archival started in the background.", icon=":material/download:")
+                else:
+                    st.info("Primary SEC HTML archival is already running for this company.")
             status.update(label=f"Refresh {outcome['status'].lower().replace('_', ' ')}", state="complete")
         except Exception as exc:
             status.update(label="Refresh failed", state="error")

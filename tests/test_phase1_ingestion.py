@@ -1,10 +1,14 @@
 from datetime import date, timedelta
+import inspect
 
 from services.sec.phase1_ingestion import (
     Phase1SECIngestionService,
+    all_company_facts,
+    annual_filing_accessions,
     calculate_ttm_from_quarterly_records,
     company_facts_for_filing,
     filing_storage_path,
+    facts_for_new_accessions,
 )
 from services.sec.financial_interpretation import reconstruct_discrete_quarter
 from services.sec.financial_validation import validate_balance_sheet, validate_cash_flow, validate_share_change
@@ -23,15 +27,15 @@ def test_selected_filings_targets_history_quarters_and_recent_events():
     ]
     quarters = [
         {"accession_number": f"quarter-{number}", "form_type": "10-Q", "filing_date": f"2026-0{number}-01"}
-        for number in range(1, 6)
+        for number in range(1, 10)
     ]
     recent_event = {"accession_number": "recent-event", "form_type": "8-K", "filing_date": today.isoformat()}
     old_event = {"accession_number": "old-event", "form_type": "8-K", "filing_date": (today - timedelta(days=800)).isoformat()}
 
     selected = Phase1SECIngestionService._selected_filings(annuals + quarters + [recent_event, old_event])
     accessions = {filing["accession_number"] for filing in selected}
-    assert len([filing for filing in selected if filing["form_type"] == "10-K"]) == 15
-    assert len([filing for filing in selected if filing["form_type"] == "10-Q"]) == 4
+    assert len([filing for filing in selected if filing["form_type"] == "10-K"]) == 17
+    assert len([filing for filing in selected if filing["form_type"] == "10-Q"]) == 8
     assert "recent-event" in accessions
     assert "old-event" not in accessions
 
@@ -44,6 +48,7 @@ def test_annual_selection_uses_distinct_reporting_periods_and_prefers_amendment(
     ]
     selected = Phase1SECIngestionService._selected_filings(filings)
     assert {filing["accession_number"] for filing in selected} == {"amendment", "oldest"}
+    assert annual_filing_accessions(filings) == {"amendment", "oldest"}
 
 
 def test_ttm_requires_four_quarters_and_preserves_unknown_values():
@@ -91,3 +96,46 @@ def test_company_facts_are_preserved_unchanged_for_the_matching_accession():
     assert rows[0]["taxonomy"] == "us-gaap"
     assert rows[0]["xbrl_tag"] == "Revenues"
     assert rows[0]["instant_date"] is None
+
+
+def test_all_company_facts_preserves_available_facts_beyond_selected_window():
+    facts = {"facts": {"us-gaap": {"Assets": {"units": {"USD": [
+        {"accn": "selected", "val": 200, "end": "2025-12-31"},
+        {"accn": "historic", "val": 100, "end": "2010-12-31"},
+    ]}}}}}
+    rows = all_company_facts("company", "320193", facts, {"selected": "filing-id"})
+    assert len(rows) == 2
+    assert rows[0]["filing_id"] == "filing-id"
+    assert rows[1]["filing_id"] is None
+
+
+def test_raw_fact_incremental_refresh_only_persists_new_accessions():
+    rows = [
+        {"accession_number": "existing", "fact_value": 100},
+        {"accession_number": "new", "fact_value": 120},
+        {"accession_number": None, "fact_value": 50},
+    ]
+    assert facts_for_new_accessions(rows, {"existing"}) == [{"accession_number": "new", "fact_value": 120}]
+
+
+def test_primary_html_download_is_opt_in_for_refreshes():
+    parameter = inspect.signature(Phase1SECIngestionService.refresh_company_sec_data).parameters["download_primary_documents"]
+    assert parameter.default is False
+
+
+def test_background_primary_html_worker_deduplicates_by_company(monkeypatch):
+    started = []
+
+    class ImmediateThread:
+        def __init__(self, target, **kwargs):
+            self.target = target
+
+        def start(self):
+            started.append(True)
+
+    monkeypatch.setattr("services.sec.phase1_ingestion.threading.Thread", ImmediateThread)
+    assert Phase1SECIngestionService.start_primary_html_download("company-background-test", "320193") is True
+    assert Phase1SECIngestionService.start_primary_html_download("company-background-test", "320193") is False
+    from services.sec.phase1_ingestion import _BACKGROUND_PRIMARY_DOWNLOADS
+    _BACKGROUND_PRIMARY_DOWNLOADS.discard("company-background-test")
+    assert len(started) == 1

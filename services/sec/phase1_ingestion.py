@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from datetime import date, datetime, timezone, timedelta
 from typing import Any
 
@@ -10,8 +11,10 @@ from services.sec.company import format_cik
 from services.sec.financial_interpretation import fiscal_year_duration_status, metric_kind
 from services.sec.financial_validation import validate_balance_sheet, validate_cash_flow, validate_share_change
 from services.sec.filings import SECFilingService
+from services.sec.filings import sec_filing_service
 from services.sec.statements import SECStatementReconstructor
 from services.sec.submissions import SECSubmissionsService
+from services.sec.submissions import sec_submissions_service
 from services.sec.xbrl import SECXBRLService
 from services.sec.xbrl import SEC_COMPANY_FACTS_URL
 
@@ -24,6 +27,8 @@ EVENT_FORMS = {"8-K", "8-K/A"}
 TTM_FLOW_METRICS = {
     "revenue", "gross_profit", "operating_income", "net_income", "operating_cash_flow", "capex", "free_cash_flow", "eps_basic", "eps_diluted",
 }
+_BACKGROUND_PRIMARY_DOWNLOADS: set[str] = set()
+_BACKGROUND_PRIMARY_DOWNLOADS_LOCK = threading.Lock()
 
 
 def filing_storage_path(cik: int | str, form_type: str, accession_number: str, filename: str) -> str:
@@ -86,6 +91,57 @@ def company_facts_for_filing(
     return rows
 
 
+def all_company_facts(
+    company_id: str,
+    cik: int | str,
+    facts: dict[str, Any],
+    filing_ids_by_accession: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Flatten every available SEC Company Fact; selected filings retain a filing FK."""
+    rows: list[dict[str, Any]] = []
+    for taxonomy, concepts in facts.get("facts", {}).items():
+        for tag, concept in concepts.items():
+            for unit, values in concept.get("units", {}).items():
+                for fact in values:
+                    accession = fact.get("accn")
+                    rows.append({
+                        "company_id": company_id,
+                        "filing_id": filing_ids_by_accession.get(accession),
+                        "accession_number": accession,
+                        "taxonomy": taxonomy,
+                        "xbrl_tag": tag,
+                        "fact_value": fact.get("val"),
+                        "unit": unit,
+                        "start_date": fact.get("start"),
+                        "end_date": fact.get("end"),
+                        "instant_date": fact.get("end") if not fact.get("start") else None,
+                        "fiscal_year": fact.get("fy"),
+                        "fiscal_period": fact.get("fp"),
+                        "form_type": fact.get("form"),
+                        "filed_date": fact.get("filed"),
+                        "frame": fact.get("frame"),
+                        "source_url": SEC_COMPANY_FACTS_URL.format(cik=format_cik(cik)),
+                    })
+    return rows
+
+
+def facts_for_new_accessions(rows: list[dict[str, Any]], known_accessions: set[str]) -> list[dict[str, Any]]:
+    """Return raw facts only for SEC filing accessions not already persisted."""
+    return [
+        row for row in rows
+        if row.get("accession_number") and row["accession_number"] not in known_accessions
+    ]
+
+
+def annual_filing_accessions(filings: list[dict[str, Any]]) -> set[str]:
+    """Return all distinct annual source accessions available for normalization."""
+    return {
+        filing["accession_number"]
+        for filing in Phase1SECIngestionService._selected_filings(filings)
+        if filing.get("form_type", "").upper() in ANNUAL_FORMS
+    }
+
+
 class Phase1SECIngestionService:
     """Storage-backed, accession-idempotent SEC filing refresh for InvestiCore Phase 1."""
 
@@ -109,6 +165,11 @@ class Phase1SECIngestionService:
         return self.client.schema("investicorev2").table(name)
 
     def _create_refresh_run(self, company_id: str) -> dict[str, Any]:
+        self._table("sec_refresh_runs").update({
+            "status": "PARTIAL_FAILURE",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "error_message": "Refresh was interrupted before a terminal status was recorded.",
+        }).eq("company_id", company_id).eq("status", "RUNNING").execute()
         result = self._table("sec_refresh_runs").insert({"company_id": company_id}).execute()
         return result.data[0]
 
@@ -118,6 +179,21 @@ class Phase1SECIngestionService:
     def _existing_filings(self, company_id: str) -> dict[str, dict[str, Any]]:
         result = self._table("sec_filings").select("*").eq("company_id", company_id).execute()
         return {record["accession_number"]: record for record in (result.data or [])}
+
+    def _existing_raw_fact_accessions(self, company_id: str) -> set[str]:
+        """Read raw-fact accession watermarks in pages to avoid repeat persistence."""
+        accessions: set[str] = set()
+        offset = 0
+        while True:
+            rows = (
+                self._table("sec_xbrl_facts").select("accession_number")
+                .eq("company_id", company_id).range(offset, offset + 999).execute().data
+                or []
+            )
+            accessions.update(row["accession_number"] for row in rows if row.get("accession_number"))
+            if len(rows) < 1000:
+                return accessions
+            offset += 1000
 
     def financial_history(self, company_id: str, period_type: str) -> list[dict[str, Any]]:
         periods = (
@@ -143,7 +219,7 @@ class Phase1SECIngestionService:
 
     @staticmethod
     def _selected_filings(filings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Select 15 annual reporting periods, four quarters, and 24 months of 8-Ks."""
+        """Select all annual reporting periods, eight quarters, and 24 months of 8-Ks."""
         annual_by_period: dict[str, dict[str, Any]] = {}
         for filing in filings:
             form = filing.get("form_type", "").upper()
@@ -153,8 +229,8 @@ class Phase1SECIngestionService:
             current = annual_by_period.get(report_period)
             if current is None or (form.endswith("/A") and not current.get("form_type", "").upper().endswith("/A")):
                 annual_by_period[report_period] = filing
-        annuals = sorted(annual_by_period.values(), key=lambda filing: str(filing.get("filing_date") or ""), reverse=True)[:15]
-        quarterlies = [f for f in filings if f.get("form_type", "").upper() in QUARTERLY_FORMS][:4]
+        annuals = sorted(annual_by_period.values(), key=lambda filing: str(filing.get("filing_date") or ""), reverse=True)
+        quarterlies = [f for f in filings if f.get("form_type", "").upper() in QUARTERLY_FORMS][:8]
         cutoff = (date.today() - timedelta(days=731)).isoformat()
         events = [
             f for f in filings
@@ -282,6 +358,43 @@ class Phase1SECIngestionService:
                 logger.exception("Companion artifact archive failed for %s", filing["accession_number"])
         return {"archived": archived, "failed": failed}
 
+    def archive_primary_documents(self, company_id: str, cik: int | str) -> dict[str, int]:
+        """Archive missing primary SEC HTML documents without reprocessing financial data."""
+        filings = self._table("sec_filings").select("*").eq("company_id", company_id).order("filing_date", desc=True).execute().data or []
+        archived = failed = 0
+        for filing in filings:
+            if not filing.get("primary_document"):
+                continue
+            try:
+                _, downloaded = self._store_primary_document(format_cik(cik), filing)
+                archived += int(downloaded)
+                self._table("sec_filings").update({"ingestion_status": "COMPLETED"}).eq("id", filing["id"]).execute()
+            except Exception:
+                failed += 1
+                logger.exception("Primary HTML archive failed for %s", filing["accession_number"])
+        return {"archived": archived, "failed": failed}
+
+    @staticmethod
+    def start_primary_html_download(company_id: str, cik: int | str) -> bool:
+        """Start one daemon worker per company; returns False when one is already active."""
+        with _BACKGROUND_PRIMARY_DOWNLOADS_LOCK:
+            if company_id in _BACKGROUND_PRIMARY_DOWNLOADS:
+                return False
+            _BACKGROUND_PRIMARY_DOWNLOADS.add(company_id)
+
+        def run() -> None:
+            try:
+                service = Phase1SECIngestionService(
+                    sec_submissions_service, sec_filing_service, get_supabase_client()
+                )
+                service.archive_primary_documents(company_id, cik)
+            finally:
+                with _BACKGROUND_PRIMARY_DOWNLOADS_LOCK:
+                    _BACKGROUND_PRIMARY_DOWNLOADS.discard(company_id)
+
+        threading.Thread(target=run, name=f"sec-html-{company_id}", daemon=True).start()
+        return True
+
     def _upsert_period(self, company_id: str, filing: dict[str, Any], period: dict[str, Any]) -> dict[str, Any]:
         payload = {
             "company_id": company_id,
@@ -303,7 +416,7 @@ class Phase1SECIngestionService:
         self,
         company_id: str,
         filing: dict[str, Any],
-        document: dict[str, Any],
+        document: dict[str, Any] | None,
         facts: dict[str, Any],
     ) -> int:
         """Persist only periods supplied by this filing, retaining the source relation for every value."""
@@ -325,7 +438,7 @@ class Phase1SECIngestionService:
                     "metric_value": metric.get("value"),
                     "unit": metric.get("unit", "USD"),
                     "source_filing_id": filing["id"],
-                    "source_document_id": document["id"],
+                    "source_document_id": document["id"] if document else None,
                     "source_accession_number": filing["accession_number"],
                     "xbrl_namespace": "us-gaap" if metric.get("source_type", "XBRL") == "XBRL" else None,
                     "xbrl_tag": metric.get("source_concept"),
@@ -357,13 +470,14 @@ class Phase1SECIngestionService:
     def _persist_raw_facts(
         self,
         company_id: str,
-        filing: dict[str, Any],
         facts: dict[str, Any],
         cik: str,
+        filing_ids_by_accession: dict[str, str],
+        known_accessions: set[str],
     ) -> int:
-        """Persist SEC Company Facts unchanged before any InvestiCore interpretation."""
-        rows = company_facts_for_filing(
-            company_id, filing["id"], filing["accession_number"], cik, facts
+        """Persist all available SEC Company Facts unchanged before normalization."""
+        rows = facts_for_new_accessions(
+            all_company_facts(company_id, cik, facts, filing_ids_by_accession), known_accessions
         )
         for index in range(0, len(rows), 500):
             self._table("sec_xbrl_facts").upsert(
@@ -473,13 +587,15 @@ class Phase1SECIngestionService:
             "difference": shares["difference"], "message": shares["message"],
         }).execute()
 
-    def _normalize_filing(self, company_id: str, cik: str, filing: dict[str, Any], document: dict[str, Any]) -> int:
+    def _normalize_filing(
+        self,
+        company_id: str,
+        filing: dict[str, Any],
+        document: dict[str, Any] | None,
+        facts: dict[str, Any],
+    ) -> int:
         if filing["form_type"] not in ANNUAL_FORMS | QUARTERLY_FORMS:
             return 0
-        facts = self.xbrl.get_company_facts(cik)
-        if not facts:
-            raise RuntimeError("SEC EDGAR returned no XBRL company facts for this issuer.")
-        self._persist_raw_facts(company_id, filing, facts, cik)
         self._table("sec_filings").update({"ingestion_status": "PARSED"}).eq("id", filing["id"]).execute()
         saved = self._persist_metrics(company_id, filing, document, facts)
         self._table("sec_filings").update({
@@ -544,34 +660,64 @@ class Phase1SECIngestionService:
             saved = len(metric_payloads)
         return saved
 
-    def refresh_company_sec_data(self, company_id: str, cik: int | str, archive_artifacts: bool = False) -> dict[str, Any]:
+    def refresh_company_sec_data(
+        self,
+        company_id: str,
+        cik: int | str,
+        download_primary_documents: bool = False,
+        archive_artifacts: bool = False,
+    ) -> dict[str, Any]:
         """Discover, deduplicate, and archive only newly required Phase 1 SEC filings."""
         run = self._create_refresh_run(company_id)
-        counts = {"discovered_count": 0, "existing_count": 0, "new_count": 0, "downloaded_count": 0, "normalized_count": 0, "failed_count": 0}
+        counts = {"discovered_count": 0, "existing_count": 0, "new_count": 0, "downloaded_count": 0, "raw_facts_saved": 0, "normalized_count": 0, "failed_count": 0}
         try:
             phase1_forms = sorted(ANNUAL_FORMS | QUARTERLY_FORMS | EVENT_FORMS)
             filings = self._selected_filings(
                 self.submissions.get_all_filings(cik, form_types=phase1_forms, limit=2000)
             )
+            selected_annual_accessions = annual_filing_accessions(filings)
+            logger.info(
+                "SEC Company Facts annual normalization scope for company %s contains %s available fiscal filings.",
+                company_id,
+                len(selected_annual_accessions),
+            )
             counts["discovered_count"] = len(filings)
             existing = self._existing_filings(company_id)
+            facts = self.xbrl.get_company_facts(cik)
+            if not facts:
+                raise RuntimeError("SEC EDGAR returned no XBRL company facts for this issuer.")
+            filing_records: dict[str, dict[str, Any]] = {}
             for discovered in filings:
                 accession = discovered["accession_number"]
-                filing = existing.get(accession) or self._upsert_filing(company_id, discovered)
+                filing_records[accession] = existing.get(accession) or self._upsert_filing(company_id, discovered)
+            counts["raw_facts_saved"] = self._persist_raw_facts(
+                company_id,
+                facts,
+                format_cik(cik),
+                {accession: record["id"] for accession, record in filing_records.items()},
+                self._existing_raw_fact_accessions(company_id),
+            )
+            for discovered in filings:
+                accession = discovered["accession_number"]
+                filing = filing_records[accession]
                 if accession in existing and filing.get("ingestion_status") == "COMPLETED":
                     counts["existing_count"] += 1
                     continue
                 counts["new_count"] += 1
                 try:
-                    document, downloaded = self._store_primary_document(format_cik(cik), filing)
-                    counts["normalized_count"] += self._normalize_filing(company_id, format_cik(cik), filing, document)
+                    document = None
+                    downloaded = False
+                    if filing["form_type"] in ANNUAL_FORMS | QUARTERLY_FORMS:
+                        counts["normalized_count"] += self._normalize_filing(
+                            company_id, filing, document, facts
+                        )
                     if filing["form_type"] not in ANNUAL_FORMS | QUARTERLY_FORMS:
                         self._table("sec_filings").update({
                             "ingestion_status": "COMPLETED",
                             "processed_at": datetime.now(timezone.utc).isoformat(),
                         }).eq("id", filing["id"]).execute()
                     counts["normalized_count"] += self._persist_ttm(company_id)
-                    if archive_artifacts:
+                    if archive_artifacts and download_primary_documents:
                         try:
                             self._store_filing_artifacts(format_cik(cik), filing)
                         except Exception:
