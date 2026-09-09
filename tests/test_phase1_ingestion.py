@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from services.sec.phase1_ingestion import (
     Phase1SECIngestionService,
     calculate_ttm_from_quarterly_records,
+    company_facts_for_filing,
     filing_storage_path,
 )
 from services.sec.financial_interpretation import reconstruct_discrete_quarter
@@ -67,3 +68,16 @@ def test_structured_financial_validations_cover_balances_cash_and_shares():
     assert validate_cash_flow(10, 5, -2, 3, 16)["validation_status"] == "PASS"
     assert validate_cash_flow(10, 5, -2, 3, 20)["validation_status"] == "WARNING"
     assert validate_share_change(100, 200)["validation_status"] == "REQUIRES_REVIEW"
+
+
+def test_company_facts_are_preserved_unchanged_for_the_matching_accession():
+    facts = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+        {"accn": "target", "val": 230, "start": "2026-01-01", "end": "2026-06-30", "fy": 2026, "fp": "Q2", "form": "10-Q", "filed": "2026-08-01"},
+        {"accn": "other", "val": 99, "end": "2026-06-30"},
+    ]}}}}}
+    rows = company_facts_for_filing("company", "filing", "target", "320193", facts)
+    assert len(rows) == 1
+    assert rows[0]["fact_value"] == 230
+    assert rows[0]["taxonomy"] == "us-gaap"
+    assert rows[0]["xbrl_tag"] == "Revenues"
+    assert rows[0]["instant_date"] is None

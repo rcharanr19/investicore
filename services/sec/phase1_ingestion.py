@@ -13,6 +13,7 @@ from services.sec.filings import SECFilingService
 from services.sec.statements import SECStatementReconstructor
 from services.sec.submissions import SECSubmissionsService
 from services.sec.xbrl import SECXBRLService
+from services.sec.xbrl import SEC_COMPANY_FACTS_URL
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,42 @@ def calculate_ttm_from_quarterly_records(records: list[dict[str, Any]]) -> dict[
         else:
             result[name] = quarters[-1]["metrics"].get(name)
     return result
+
+
+def company_facts_for_filing(
+    company_id: str,
+    filing_id: str,
+    accession_number: str,
+    cik: int | str,
+    facts: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Flatten unchanged SEC Company Facts for one filing into persistence rows."""
+    rows: list[dict[str, Any]] = []
+    for taxonomy, concepts in facts.get("facts", {}).items():
+        for tag, concept in concepts.items():
+            for unit, values in concept.get("units", {}).items():
+                for fact in values:
+                    if fact.get("accn") != accession_number:
+                        continue
+                    rows.append({
+                        "company_id": company_id,
+                        "filing_id": filing_id,
+                        "accession_number": fact.get("accn"),
+                        "taxonomy": taxonomy,
+                        "xbrl_tag": tag,
+                        "fact_value": fact.get("val"),
+                        "unit": unit,
+                        "start_date": fact.get("start"),
+                        "end_date": fact.get("end"),
+                        "instant_date": fact.get("end") if not fact.get("start") else None,
+                        "fiscal_year": fact.get("fy"),
+                        "fiscal_period": fact.get("fp"),
+                        "form_type": fact.get("form"),
+                        "filed_date": fact.get("filed"),
+                        "frame": fact.get("frame"),
+                        "source_url": SEC_COMPANY_FACTS_URL.format(cik=format_cik(cik)),
+                    })
+    return rows
 
 
 class Phase1SECIngestionService:
@@ -269,6 +306,24 @@ class Phase1SECIngestionService:
             self._record_mapping_reviews(company_id, filing["id"], metrics)
         return saved
 
+    def _persist_raw_facts(
+        self,
+        company_id: str,
+        filing: dict[str, Any],
+        facts: dict[str, Any],
+        cik: str,
+    ) -> int:
+        """Persist SEC Company Facts unchanged before any InvestiCore interpretation."""
+        rows = company_facts_for_filing(
+            company_id, filing["id"], filing["accession_number"], cik, facts
+        )
+        for row in rows:
+            self._table("sec_xbrl_facts").upsert(
+                row,
+                on_conflict="company_id,accession_number,taxonomy,xbrl_tag,unit,start_date,end_date,instant_date,frame",
+            ).execute()
+        return len(rows)
+
     def _record_mapping_reviews(self, company_id: str, filing_id: str, metrics: dict[str, dict[str, Any]]) -> None:
         required = {"revenue", "net_income", "operating_cash_flow", "cash", "total_assets", "total_liabilities", "total_equity"}
         for metric_name in sorted(required - metrics.keys()):
@@ -343,6 +398,7 @@ class Phase1SECIngestionService:
         facts = self.xbrl.get_company_facts(cik)
         if not facts:
             raise RuntimeError("SEC EDGAR returned no XBRL company facts for this issuer.")
+        self._persist_raw_facts(company_id, filing, facts, cik)
         self._table("sec_filings").update({"ingestion_status": "PARSED"}).eq("id", filing["id"]).execute()
         saved = self._persist_metrics(company_id, filing, document, facts)
         self._table("sec_filings").update({

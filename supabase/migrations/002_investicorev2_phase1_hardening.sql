@@ -27,6 +27,34 @@ ALTER TABLE investicorev2.financial_metrics
     ADD COLUMN IF NOT EXISTS source_fact_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
     ADD COLUMN IF NOT EXISTS is_preferred BOOLEAN NOT NULL DEFAULT TRUE;
 
+CREATE TABLE IF NOT EXISTS investicorev2.sec_xbrl_facts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES investicorev2.companies(id) ON DELETE CASCADE,
+    filing_id UUID REFERENCES investicorev2.sec_filings(id) ON DELETE SET NULL,
+    accession_number TEXT,
+    taxonomy TEXT NOT NULL,
+    xbrl_tag TEXT NOT NULL,
+    fact_value NUMERIC,
+    unit TEXT,
+    start_date DATE,
+    end_date DATE,
+    instant_date DATE,
+    fiscal_year INTEGER,
+    fiscal_period TEXT,
+    form_type TEXT,
+    filed_date DATE,
+    frame TEXT,
+    source_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT sec_xbrl_facts_identity_key UNIQUE NULLS NOT DISTINCT
+        (company_id, accession_number, taxonomy, xbrl_tag, unit, start_date, end_date, instant_date, frame)
+);
+
+CREATE INDEX IF NOT EXISTS sec_xbrl_facts_company_tag_idx
+    ON investicorev2.sec_xbrl_facts(company_id, taxonomy, xbrl_tag);
+CREATE INDEX IF NOT EXISTS sec_xbrl_facts_filing_idx
+    ON investicorev2.sec_xbrl_facts(filing_id);
+
 ALTER TABLE investicorev2.financial_validation_issues
     ADD COLUMN IF NOT EXISTS validation_type TEXT,
     ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'REQUIRES_REVIEW'
@@ -56,10 +84,17 @@ CREATE INDEX IF NOT EXISTS xbrl_mapping_reviews_company_status_idx
     ON investicorev2.xbrl_mapping_reviews(company_id, status);
 
 ALTER TABLE investicorev2.xbrl_mapping_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE investicorev2.sec_xbrl_facts ENABLE ROW LEVEL SECURITY;
 
 GRANT ALL ON investicorev2.xbrl_mapping_reviews TO anon, authenticated, service_role;
+GRANT ALL ON investicorev2.sec_xbrl_facts TO anon, authenticated, service_role;
 
 DROP POLICY IF EXISTS "InvestiCore V2 HTTP API access" ON investicorev2.xbrl_mapping_reviews;
 CREATE POLICY "InvestiCore V2 HTTP API access"
 ON investicorev2.xbrl_mapping_reviews FOR ALL TO anon, authenticated, service_role
+USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "InvestiCore V2 HTTP API access" ON investicorev2.sec_xbrl_facts;
+CREATE POLICY "InvestiCore V2 HTTP API access"
+ON investicorev2.sec_xbrl_facts FOR ALL TO anon, authenticated, service_role
 USING (true) WITH CHECK (true);

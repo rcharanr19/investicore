@@ -81,6 +81,16 @@ if filings:
 else:
     st.info("No filings are stored yet. Run the refresh to begin the initial load.")
 
+validation_rows = (
+    client.schema("investicorev2").table("financial_validation_issues")
+    .select("check_name,validation_status,severity,message,created_at")
+    .eq("company_id", company["id"]).order("created_at", desc=True).limit(30).execute().data
+    or []
+)
+if validation_rows:
+    with st.expander("Data-quality checks"):
+        st.dataframe(pd.DataFrame(validation_rows), hide_index=True)
+
 service = Phase1SECIngestionService(sec_submissions_service, sec_filing_service, client)
 annual_history = service.financial_history(company["id"], "Annual")
 quarterly_history = service.financial_history(company["id"], "Quarterly")
@@ -109,3 +119,15 @@ with ttm_tab:
         st.table({key.replace("_", " ").title(): value for key, value in ttm.items()})
     else:
         st.info("TTM becomes available after four quarterly observations are normalized. Annual values are never substituted.")
+
+with st.expander("Financial provenance"):
+    provenance = (
+        client.schema("investicorev2").table("financial_metrics")
+        .select("metric_name,metric_value,source_accession_number,xbrl_namespace,xbrl_tag,calculation_method,confidence,is_derived")
+        .eq("company_id", company["id"]).eq("is_preferred", True).limit(100).execute().data
+        or []
+    )
+    if provenance:
+        st.dataframe(pd.DataFrame(provenance), hide_index=True)
+    else:
+        st.info("Provenance appears after financial facts are normalized.")
