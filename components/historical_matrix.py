@@ -103,9 +103,14 @@ METRIC_GROUPS: dict[str, list[tuple[str, str, str]]] = {
 
 
 def format_metric_value(value: Any, unit: str) -> str:
-    if value is None or pd.isna(value):
+    if value is None:
         return "-"
-    number = float(value)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "-"
+    if pd.isna(number):
+        return "-"
     if unit == "percentage":
         return f"{number * 100:,.1f}%"
     if unit == "multiple":
@@ -140,6 +145,9 @@ def build_historical_matrix(
                 change = ((float(value) / prior_value) - 1) * 100
                 display = f"{display}\n{change:+,.1f}%"
             row[header] = display
-            prior_value = float(value) if value is not None else None
+            try:
+                prior_value = float(value) if value is not None else None
+            except (TypeError, ValueError):
+                prior_value = None
         rows.append(row)
     return pd.DataFrame(rows)

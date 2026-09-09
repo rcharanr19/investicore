@@ -19,6 +19,7 @@ def test_historical_matrix_formats_percentages_multiples_and_negative_values():
     assert format_metric_value(15.25, "multiple") == "15.2x"
     assert format_metric_value(-250_000_000, "currency") == "-$250.0M"
     assert format_metric_value(None, "currency") == "-"
+    assert format_metric_value([100], "currency") == "-"
 
 
 def test_historical_matrix_displays_previous_year_change_in_the_same_cell():
