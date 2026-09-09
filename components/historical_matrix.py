@@ -125,13 +125,21 @@ def build_historical_matrix(
     periods: list[dict[str, Any]],
     values_by_period: dict[str, dict[str, Any]],
     metric_group: str,
+    include_yoy_change: bool = False,
 ) -> pd.DataFrame:
     """Build a researcher-facing metric-rows/fiscal-period-columns matrix."""
     rows: list[dict[str, str]] = []
     for metric_name, label, unit in METRIC_GROUPS[metric_group]:
         row = {"Metric": label}
+        prior_value: float | None = None
         for period in periods:
             header = f"FY{period['fiscal_year']}"
-            row[header] = format_metric_value(values_by_period.get(period["id"], {}).get(metric_name), unit)
+            value = values_by_period.get(period["id"], {}).get(metric_name)
+            display = format_metric_value(value, unit)
+            if include_yoy_change and value is not None and prior_value is not None and prior_value != 0:
+                change = ((float(value) / prior_value) - 1) * 100
+                display = f"{display}\n{change:+,.1f}%"
+            row[header] = display
+            prior_value = float(value) if value is not None else None
         rows.append(row)
     return pd.DataFrame(rows)

@@ -34,6 +34,7 @@ if not annual_periods:
 range_option = st.selectbox("Historical range", ["5 fiscal years", "10 fiscal years", "All available years"], index=0)
 range_limit = {"5 fiscal years": 5, "10 fiscal years": 10, "All available years": len(annual_periods)}[range_option]
 historical_periods = list(reversed(annual_periods[:range_limit]))
+show_yoy_change = st.checkbox("Show year-over-year change for each metric", value=True)
 if st.button("Update Yahoo price and calculate all metrics", type="primary", icon=":material/calculate:"):
     price = fetch_current_price(company["ticker"])
     if price is None:
@@ -73,7 +74,15 @@ st.subheader(f"Historical fundamentals: {range_option}")
 default_open = {"Income statement", "Cash flow", "Balance sheet", "Growth & margins", "Profitability & returns", "Financial strength", "Valuation"}
 for section in METRIC_GROUPS:
     with st.expander(section, expanded=section in default_open):
-        st.dataframe(build_historical_matrix(historical_periods, values_by_period, section), hide_index=True)
+        st.dataframe(
+            build_historical_matrix(
+                historical_periods,
+                values_by_period,
+                section,
+                include_yoy_change=show_yoy_change,
+            ),
+            hide_index=True,
+        )
 
 with st.expander("Data & provenance"):
     audit_period = st.selectbox("Inspect fiscal period", historical_periods, format_func=lambda row: f"FY{row['fiscal_year']} ending {row['period_end']}")
