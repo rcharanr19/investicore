@@ -16,6 +16,12 @@ def _growth(current: float | None, prior: float | None) -> float | None:
     return (float(current) / float(prior)) - 1.0
 
 
+def _cagr(current: float | None, prior: float | None, years: int) -> float | None:
+    if current is None or prior is None or current <= 0 or prior <= 0 or years <= 0:
+        return None
+    return (float(current) / float(prior)) ** (1 / years) - 1.0
+
+
 def calculate_period_metrics(
     current: dict[str, float | None],
     prior: dict[str, float | None] | None = None,
@@ -40,6 +46,14 @@ def calculate_period_metrics(
     gross_profit = current.get("gross_profit")
     depreciation = current.get("depreciation_amortization")
     interest_expense = current.get("interest_expense")
+    receivables = current.get("accounts_receivable")
+    inventory = current.get("inventory")
+    payables = current.get("accounts_payable")
+    cogs = current.get("cogs")
+    goodwill = current.get("goodwill") or 0.0
+    intangibles = current.get("intangibles") or 0.0
+    ncav = current.get("ncav")
+    nnwc = current.get("nnwc")
     ebitda = operating_income + depreciation if operating_income is not None and depreciation is not None else None
     net_debt = debt - cash - securities if debt is not None and cash is not None else None
 
@@ -55,6 +69,7 @@ def calculate_period_metrics(
     result["cash"] = cash
     result["total_debt"] = debt
     result["net_debt"] = net_debt
+    result["working_capital"] = (current.get("total_current_assets") - current.get("current_liabilities")) if current.get("total_current_assets") is not None and current.get("current_liabilities") is not None else None
     result["gross_margin"] = _ratio(gross_profit, revenue)
     result["operating_margin"] = _ratio(operating_income, revenue)
     result["net_margin"] = _ratio(net_income, revenue)
@@ -70,7 +85,18 @@ def calculate_period_metrics(
     result["net_debt_to_equity"] = _ratio(net_debt, equity)
     result["net_debt_to_ebitda"] = _ratio(net_debt, ebitda)
     result["current_ratio"] = _ratio(current.get("total_current_assets"), current.get("current_liabilities"))
+    result["quick_ratio"] = _ratio((cash or 0.0) + securities + (receivables or 0.0), current.get("current_liabilities")) if cash is not None and receivables is not None else None
+    result["debt_to_assets"] = _ratio(debt, assets)
+    result["debt_to_ebitda"] = _ratio(debt, ebitda)
     result["interest_coverage"] = _ratio(operating_income, interest_expense)
+    result["book_value_per_share"] = _ratio(equity, shares)
+    result["tangible_book_value_per_share"] = _ratio((equity - goodwill - intangibles) if equity is not None else None, shares)
+    result["revenue_per_share"] = _ratio(revenue, shares)
+    result["fcf_per_share"] = _ratio(fcf, shares)
+    result["net_cash_per_share"] = _ratio((-net_debt) if net_debt is not None else None, shares)
+    result["ncav_per_share"] = _ratio(ncav, shares)
+    result["nnwc_per_share"] = _ratio(nnwc, shares)
+    result["working_capital_to_revenue"] = _ratio(result["working_capital"], revenue)
 
     if prior:
         for metric_name in ("revenue", "gross_profit", "operating_income", "net_income", "operating_cash_flow", "free_cash_flow", "sbc"):
@@ -88,6 +114,13 @@ def calculate_period_metrics(
         prior_invested = (prior.get("total_debt") or 0.0) + (prior.get("total_equity") or 0.0) - (prior.get("cash") or 0.0) - (prior.get("marketable_securities") or 0.0)
         average_invested = (invested_capital + prior_invested) / 2 if invested_capital is not None else None
         result["roic"] = _ratio(operating_income * (1 - tax_rate) if operating_income is not None and tax_rate is not None else None, average_invested)
+        average_receivables = ((receivables or 0.0) + (prior.get("accounts_receivable") or 0.0)) / 2 if receivables is not None and prior.get("accounts_receivable") is not None else None
+        average_inventory = ((inventory or 0.0) + (prior.get("inventory") or 0.0)) / 2 if inventory is not None and prior.get("inventory") is not None else None
+        average_payables = ((payables or 0.0) + (prior.get("accounts_payable") or 0.0)) / 2 if payables is not None and prior.get("accounts_payable") is not None else None
+        result["dso"] = _ratio(average_receivables * 365 if average_receivables is not None else None, revenue)
+        result["dio"] = _ratio(average_inventory * 365 if average_inventory is not None else None, cogs)
+        result["dpo"] = _ratio(average_payables * 365 if average_payables is not None else None, cogs)
+        result["cash_conversion_cycle"] = result["dso"] + result["dio"] - result["dpo"] if None not in (result["dso"], result["dio"], result["dpo"]) else None
 
     if market_price is not None and shares is not None:
         market_cap = float(market_price) * float(shares)
@@ -103,6 +136,11 @@ def calculate_period_metrics(
         result["ev_to_ebit"] = _ratio(enterprise_value, operating_income)
         result["ev_to_ebitda"] = _ratio(enterprise_value, ebitda)
         result["ev_to_fcf"] = _ratio(enterprise_value, fcf)
+        result["ev_to_sales"] = _ratio(enterprise_value, revenue)
+        result["price_to_book"] = _ratio(market_cap, equity)
+        result["price_to_tangible_book"] = _ratio(market_cap, (equity - goodwill - intangibles) if equity is not None else None)
+        result["price_to_ncav"] = _ratio(market_cap, ncav)
+        result["price_to_nnwc"] = _ratio(market_cap, nnwc)
     return result
 
 
@@ -137,7 +175,7 @@ class DerivedMetricsService:
             "market_price_id": market_price.get("id") if market_price else None,
             "metric_name": name,
             "metric_value": value,
-            "unit": "currency" if name in {"revenue", "gross_profit", "ebit", "ebitda", "net_income", "operating_cash_flow", "free_cash_flow", "stock_based_compensation", "cash", "total_debt", "net_debt", "market_cap", "enterprise_value"} else "shares" if name == "diluted_shares" else "percentage" if name.endswith(("_margin", "_growth", "_yield")) or name in {"sbc_to_revenue", "sbc_to_ocf", "sbc_to_fcf", "capex_to_revenue", "cfo_to_net_income", "fcf_to_net_income", "shares_yoy_change", "roe", "roa", "roic"} else "ratio",
+            "unit": "currency" if name in {"revenue", "gross_profit", "ebit", "ebitda", "net_income", "operating_cash_flow", "free_cash_flow", "stock_based_compensation", "cash", "total_debt", "net_debt", "working_capital", "market_cap", "enterprise_value"} else "shares" if name == "diluted_shares" else "per_share" if name.endswith("_per_share") else "percentage" if name.endswith(("_margin", "_growth", "_yield", "_cagr")) or name in {"sbc_to_revenue", "sbc_to_ocf", "sbc_to_fcf", "capex_to_revenue", "cfo_to_net_income", "fcf_to_net_income", "shares_yoy_change", "roe", "roa", "roic", "working_capital_to_revenue"} else "days" if name in {"dso", "dio", "dpo", "cash_conversion_cycle"} else "ratio",
             "status": "AVAILABLE" if value is not None else "NOT_APPLICABLE",
             "calculation_method": "phase2_normalized_financials",
             "source_period_ids": ids,
@@ -148,6 +186,42 @@ class DerivedMetricsService:
         if rows:
             schema.table("derived_metrics").upsert(rows, on_conflict="company_id,financial_period_id,market_price_id,metric_name,calculation_version").execute()
         return rows
+
+    def _calculate_cagrs(self, company_id: str) -> int:
+        schema = self.client.schema("investicorev2")
+        periods = schema.table("financial_periods").select("id,fiscal_year,source_filing_id").eq("company_id", company_id).eq("period_type", "Annual").order("period_end").execute().data or []
+        if len(periods) < 2:
+            return 0
+        period_ids = [period["id"] for period in periods]
+        source_metrics = schema.table("financial_metrics").select("financial_period_id,metric_name,metric_value").in_("financial_period_id", period_ids).eq("is_preferred", True).execute().data or []
+        values: dict[str, dict[str, float | None]] = {period_id: {} for period_id in period_ids}
+        for metric in source_metrics:
+            values[metric["financial_period_id"]][metric["metric_name"]] = float(metric["metric_value"]) if metric["metric_value"] is not None else None
+        rows = []
+        for index, current_period in enumerate(periods):
+            for target_years in (3, 5, 10):
+                prior_index = next((candidate for candidate in range(index - 1, -1, -1) if current_period["fiscal_year"] - periods[candidate]["fiscal_year"] >= target_years), None)
+                if prior_index is None:
+                    continue
+                prior_period = periods[prior_index]
+                span = current_period["fiscal_year"] - prior_period["fiscal_year"]
+                for metric_name in ("revenue", "operating_income", "net_income", "eps_diluted", "free_cash_flow"):
+                    value = _cagr(values[current_period["id"]].get(metric_name), values[prior_period["id"]].get(metric_name), span)
+                    rows.append({
+                        "company_id": company_id,
+                        "financial_period_id": current_period["id"],
+                        "metric_name": f"{metric_name}_{target_years}y_cagr",
+                        "metric_value": value,
+                        "unit": "percentage",
+                        "status": "AVAILABLE" if value is not None else "NOT_APPLICABLE",
+                        "calculation_method": f"annual_cagr_{span}y",
+                        "source_period_ids": [prior_period["id"], current_period["id"]],
+                        "source_metric_names": [metric_name],
+                        "source_filing_ids": [item["source_filing_id"] for item in (prior_period, current_period) if item.get("source_filing_id")],
+                    })
+        if rows:
+            schema.table("derived_metrics").upsert(rows, on_conflict="company_id,financial_period_id,market_price_id,metric_name,calculation_version").execute()
+        return len(rows)
 
     def calculate_all(self, company_id: str, market_price: dict[str, Any] | None = None) -> int:
         """Calculate operating metrics for all annual, quarterly, and TTM periods."""
@@ -169,7 +243,7 @@ class DerivedMetricsService:
                 market_price if item["id"] == latest_ttm_id else None,
             )
             saved += len(rows)
-        return saved
+        return saved + self._calculate_cagrs(company_id)
 
     def save_latest_market_price(self, company_id: str, ticker: str, price: float) -> dict[str, Any]:
         return self.client.schema("investicorev2").table("market_prices").insert({

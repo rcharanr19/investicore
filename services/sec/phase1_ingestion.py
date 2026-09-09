@@ -743,6 +743,18 @@ class Phase1SECIngestionService:
                         "failure_stage": "NORMALIZATION", "retry_count": int(filing.get("retry_count") or 0) + 1,
                         "next_retry_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
                     }).eq("id", filing["id"]).execute()
+            if counts["normalized_count"]:
+                try:
+                    from services.derived_metrics import DerivedMetricsService
+
+                    prices = (
+                        self._table("market_prices").select("id,price")
+                        .eq("company_id", company_id).order("market_timestamp", desc=True).limit(1).execute().data
+                        or []
+                    )
+                    DerivedMetricsService(self.client).calculate_all(company_id, prices[0] if prices else None)
+                except Exception:
+                    logger.exception("Phase 2 derived-metric recalculation failed after SEC refresh for %s", company_id)
             status = "COMPLETED" if counts["failed_count"] == 0 else "PARTIAL_FAILURE"
             self._update_refresh_run(run["id"], status=status, completed_at=datetime.now(timezone.utc).isoformat(), **counts)
             return {"run_id": run["id"], "status": status, **counts}

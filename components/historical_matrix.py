@@ -51,6 +51,11 @@ METRIC_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("shares_diluted", "Diluted shares", "shares"),
         ("eps_diluted", "Diluted EPS", "per_share"),
         ("eps_basic", "Basic EPS", "per_share"),
+        ("book_value_per_share", "Book value / share", "per_share"),
+        ("tangible_book_value_per_share", "Tangible book value / share", "per_share"),
+        ("revenue_per_share", "Revenue / share", "per_share"),
+        ("fcf_per_share", "Free cash flow / share", "per_share"),
+        ("net_cash_per_share", "Net cash / share", "per_share"),
     ],
     "Growth & margins": [
         ("revenue_growth", "Revenue growth", "percentage"),
@@ -63,6 +68,13 @@ METRIC_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("net_margin", "Net margin", "percentage"),
         ("ocf_margin", "Operating cash flow margin", "percentage"),
         ("fcf_margin", "Free cash flow margin", "percentage"),
+        ("revenue_3y_cagr", "Revenue CAGR (3Y)", "percentage"),
+        ("revenue_5y_cagr", "Revenue CAGR (5Y)", "percentage"),
+        ("revenue_10y_cagr", "Revenue CAGR (10Y)", "percentage"),
+        ("operating_income_5y_cagr", "EBIT CAGR (5Y)", "percentage"),
+        ("net_income_5y_cagr", "Net income CAGR (5Y)", "percentage"),
+        ("eps_diluted_5y_cagr", "EPS CAGR (5Y)", "percentage"),
+        ("free_cash_flow_5y_cagr", "Free cash flow CAGR (5Y)", "percentage"),
     ],
     "Profitability & returns": [
         ("roe", "ROE", "percentage"),
@@ -78,6 +90,9 @@ METRIC_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("net_debt_to_equity", "Net debt / equity", "multiple"),
         ("net_debt_to_ebitda", "Net debt / EBITDA", "multiple"),
         ("interest_coverage", "Interest coverage", "multiple"),
+        ("quick_ratio", "Quick ratio", "multiple"),
+        ("debt_to_assets", "Debt / assets", "percentage"),
+        ("debt_to_ebitda", "Debt / EBITDA", "multiple"),
         ("shares_yoy_change", "Share dilution", "percentage"),
         ("sbc_to_revenue", "SBC / revenue", "percentage"),
     ],
@@ -85,6 +100,8 @@ METRIC_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("ncav", "NCAV", "currency"),
         ("nnwc", "NNWC", "currency"),
         ("net_cash", "Net cash", "currency"),
+        ("ncav_per_share", "NCAV / share", "per_share"),
+        ("nnwc_per_share", "NNWC / share", "per_share"),
     ],
     "Valuation": [
         ("market_cap", "Market capitalization", "currency"),
@@ -96,8 +113,21 @@ METRIC_GROUPS: dict[str, list[tuple[str, str, str]]] = {
         ("ev_to_ebit", "EV / EBIT", "multiple"),
         ("ev_to_ebitda", "EV / EBITDA", "multiple"),
         ("ev_to_fcf", "EV / FCF", "multiple"),
+        ("ev_to_sales", "EV / Sales", "multiple"),
+        ("price_to_book", "P / Book", "multiple"),
+        ("price_to_tangible_book", "P / tangible book", "multiple"),
+        ("price_to_ncav", "P / NCAV", "multiple"),
+        ("price_to_nnwc", "P / NNWC", "multiple"),
         ("earnings_yield", "Earnings yield", "percentage"),
         ("fcf_yield", "FCF yield", "percentage"),
+    ],
+    "Working capital": [
+        ("working_capital", "Working capital", "currency"),
+        ("working_capital_to_revenue", "Working capital / revenue", "percentage"),
+        ("dso", "Days sales outstanding", "days"),
+        ("dio", "Days inventory outstanding", "days"),
+        ("dpo", "Days payables outstanding", "days"),
+        ("cash_conversion_cycle", "Cash conversion cycle", "days"),
     ],
 }
 
@@ -115,6 +145,8 @@ def format_metric_value(value: Any, unit: str) -> str:
         return f"{number * 100:,.1f}%"
     if unit == "multiple":
         return f"{number:,.1f}x"
+    if unit == "days":
+        return f"{number:,.1f}d"
     if unit == "per_share":
         return f"${number:,.2f}"
     if unit == "shares":

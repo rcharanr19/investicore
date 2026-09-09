@@ -37,6 +37,18 @@ def test_calculate_growth_and_margin_metrics_when_prior_values_exist():
     assert ratios["sbc_to_revenue"] == 0.05
 
 
+def test_calculate_per_share_working_capital_and_asset_value_metrics():
+    current = {"revenue": 100, "free_cash_flow": 20, "total_equity": 50, "goodwill": 5, "intangibles": 5, "shares_diluted": 10, "cash": 15, "marketable_securities": 5, "total_debt": 10, "total_current_assets": 60, "current_liabilities": 30, "accounts_receivable": 20, "inventory": 10, "accounts_payable": 8, "cogs": 40, "ncav": 30, "nnwc": 25}
+    prior = {"accounts_receivable": 10, "inventory": 8, "accounts_payable": 6}
+    ratios = calculate_period_metrics(current, prior)
+    assert ratios["book_value_per_share"] == 5
+    assert ratios["tangible_book_value_per_share"] == 4
+    assert ratios["fcf_per_share"] == 2
+    assert ratios["quick_ratio"] == pytest.approx(4 / 3)
+    assert ratios["dso"] == pytest.approx(15 / 100 * 365)
+    assert ratios["ncav_per_share"] == 3
+
+
 def test_negative_earnings_or_cash_flow_do_not_create_price_ratios():
     ratios = calculate_period_metrics({"net_income": -1, "free_cash_flow": 0, "operating_cash_flow": 0, "shares_diluted": 10}, market_price=100)
     assert ratios["price_to_earnings"] is None

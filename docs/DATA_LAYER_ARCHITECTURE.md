@@ -57,4 +57,4 @@ For flow metrics, normalized quarters prefer a direct quarter fact, then reconst
 
 Validation outcomes are stored independently in `financial_validation_issues`; unresolved mapping issues are stored in `xbrl_mapping_reviews`. Persisted TTM is the only Phase 1 derived layer. It uses the latest four discrete quarters and retains the contributing period and filing identifiers.
 
-Phase 2 may build growth, margins, return metrics, and other analysis only from the normalized and persisted TTM layers. It must not overwrite SEC source facts or Phase 1 normalization provenance.
+Phase 2 builds growth, margins, return metrics, per-share metrics, working-capital metrics, leverage, and valuation ratios only from the normalized and persisted TTM layers. A Phase 1 refresh that changes normalized data automatically triggers Phase 2 recalculation with the latest stored market-price snapshot, when available. It must not overwrite SEC source facts or Phase 1 normalization provenance.
