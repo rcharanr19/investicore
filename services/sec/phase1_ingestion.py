@@ -425,11 +425,13 @@ class Phase1SECIngestionService:
         if start and end:
             days = (date.fromisoformat(str(end)) - date.fromisoformat(str(start))).days + 1
         fiscal_status = fiscal_year_duration_status(days) if period["period_type"] == "Annual" else "NOT_APPLICABLE"
+        database_status = "PASS" if fiscal_status == "VALID_53_WEEK_YEAR" else fiscal_status
         self._table("financial_validation_issues").insert({
             "company_id": company_id, "financial_period_id": period["id"], "source_filing_id": filing_id,
-            "check_name": "fiscal_year_duration", "validation_type": "fiscal_year_duration", "validation_status": fiscal_status,
+            "check_name": "fiscal_year_duration", "validation_type": "fiscal_year_duration", "validation_status": database_status,
             "severity": "WARNING" if fiscal_status == "REQUIRES_REVIEW" else "INFO",
-            "actual_value": days, "message": "Fiscal year duration classification.",
+            "actual_value": days, "message": f"Fiscal year duration classification: {fiscal_status}.",
+            "details": {"fiscal_year_classification": fiscal_status},
         }).execute()
         current_shares = metrics.get("shares_outstanding", {}).get("value")
         previous = (

@@ -64,7 +64,7 @@ CREATE INDEX IF NOT EXISTS sec_xbrl_facts_filing_idx
 ALTER TABLE investicorev2.financial_validation_issues
     ADD COLUMN IF NOT EXISTS validation_type TEXT,
     ADD COLUMN IF NOT EXISTS validation_status TEXT NOT NULL DEFAULT 'REQUIRES_REVIEW'
-        CHECK (validation_status IN ('PASS', 'WARNING', 'FAIL', 'REQUIRES_REVIEW', 'NOT_APPLICABLE')),
+        CHECK (validation_status IN ('PASS', 'VALID_53_WEEK_YEAR', 'WARNING', 'FAIL', 'REQUIRES_REVIEW', 'NOT_APPLICABLE')),
     ADD COLUMN IF NOT EXISTS expected_value NUMERIC,
     ADD COLUMN IF NOT EXISTS actual_value NUMERIC,
     ADD COLUMN IF NOT EXISTS difference NUMERIC,
