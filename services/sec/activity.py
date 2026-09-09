@@ -26,7 +26,12 @@ def _text(node: element_tree.Element, path: str) -> str | None:
 
 def parse_form4_xml(content: str) -> list[dict[str, Any]]:
     """Extract actual non-derivative Form 4 transactions from SEC ownership XML."""
-    root = element_tree.fromstring(content)
+    try:
+        root = element_tree.fromstring(content)
+    except element_tree.ParseError:
+        return []
+    if root.tag != "ownershipDocument":
+        return []
     owner = _text(root, "reportingOwner/reportingOwnerId/rptOwnerName") or "Unknown reporting person"
     title = _text(root, "reportingOwner/reportingOwnerRelationship/officerTitle")
     rows = []
@@ -79,14 +84,19 @@ class SECActivityService:
     def ingest(self, company_id: str, cik: str) -> dict[str, int]:
         forms = ["4", "4/A", "13D", "13D/A", "13G", "13G/A"]
         filings = self.submissions.get_all_filings(cik, form_types=forms, limit=500)
-        created_insiders = created_ownership = 0
+        created_insiders = created_ownership = skipped = 0
         for discovered in filings:
             filing = self.ingestion._upsert_filing(company_id, discovered)
             content, _ = self.filings.fetch_filing_document(cik, filing["accession_number"], filing["primary_document"])
             if not content:
+                skipped += 1
                 continue
             if filing["form_type"] in {"4", "4/A"}:
-                for transaction in parse_form4_xml(content):
+                transactions = parse_form4_xml(content)
+                if not transactions:
+                    skipped += 1
+                    continue
+                for transaction in transactions:
                     self.client.schema("investicorev2").table("insider_transactions").upsert({
                         "company_id": company_id, "filing_id": filing["id"], "source_document_url": filing["sec_url"], **transaction,
                     }, on_conflict="filing_id,transaction_code,transaction_date,shares_transacted,price_per_share").execute()
@@ -103,4 +113,8 @@ class SECActivityService:
                     "activity_type": activity, "source_document_url": filing["sec_url"], **disclosure,
                 }, on_conflict="filing_id").execute()
                 created_ownership += 1
-        return {"insider_transactions": created_insiders, "ownership_disclosures": created_ownership}
+            return {
+                "insider_transactions": created_insiders,
+                "ownership_disclosures": created_ownership,
+                "skipped_filings": skipped,
+            }

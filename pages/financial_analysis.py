@@ -109,7 +109,7 @@ st.subheader("SEC activity evidence")
 if st.button("Ingest Form 4 and 13D/13G activity", icon=":material/download:"):
     with st.status("Ingesting SEC ownership activity", expanded=True) as status:
         outcome = SECActivityService(client, sec_submissions_service, sec_filing_service).ingest(company["id"], company["cik"])
-        status.update(label=f"Stored {outcome['insider_transactions']} Form 4 transactions and {outcome['ownership_disclosures']} ownership disclosures", state="complete")
+        status.update(label=f"Stored {outcome['insider_transactions']} Form 4 transactions and {outcome['ownership_disclosures']} ownership disclosures; skipped {outcome['skipped_filings']} unsupported or unavailable filings", state="complete")
 activity_tab, ownership_tab = st.tabs(["Insider and management Form 4", "Activist and ownership 13D/13G"])
 with activity_tab:
     rows = client.schema("investicorev2").table("insider_transactions").select("reporting_person,officer_title,transaction_date,transaction_code,transaction_type,shares_transacted,price_per_share,total_value").eq("company_id", company["id"]).order("transaction_date", desc=True).execute().data or []

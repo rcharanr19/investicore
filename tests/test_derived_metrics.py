@@ -66,6 +66,11 @@ def test_form4_parser_uses_actual_transaction_code_and_amounts():
     assert transaction["total_value"] == 2500
 
 
+def test_form4_parser_skips_html_or_malformed_primary_documents():
+    assert parse_form4_xml("<html><body>SEC filing index</body></html>") == []
+    assert parse_form4_xml("not xml") == []
+
+
 def test_historical_close_uses_period_end_or_previous_trading_day():
     history = pd.DataFrame({"Close": [100.0, 105.0]}, index=pd.to_datetime(["2024-12-27", "2024-12-31"]))
     closes = closes_on_or_before(history, ["2024-12-29", "2024-12-31"])
