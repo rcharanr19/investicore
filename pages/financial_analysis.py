@@ -71,8 +71,10 @@ for start in range(0, len(snapshot_metrics), 3):
         column.metric(label, value)
 
 st.subheader(f"Historical fundamentals: {range_option}")
-default_open = {"Income statement", "Cash flow", "Balance sheet", "Growth & margins", "Profitability & returns", "Financial strength", "Valuation"}
+default_open = {"Income statement", "Cash flow", "Balance sheet", "Growth & margins", "Profitability & returns", "Financial strength"}
 for section in METRIC_GROUPS:
+    if section == "Valuation":
+        continue
     with st.expander(section, expanded=section in default_open):
         st.dataframe(
             build_historical_matrix(
@@ -83,6 +85,19 @@ for section in METRIC_GROUPS:
             ),
             hide_index=True,
         )
+
+st.subheader("Current valuation")
+if ttm_period:
+    valuation_rows = client.schema("investicorev2").table("derived_metrics").select("metric_name,metric_value,unit").eq("company_id", company["id"]).eq("financial_period_id", ttm_period["id"]).in_("metric_name", [metric[0] for metric in METRIC_GROUPS["Valuation"]]).order("calculated_at", desc=True).execute().data or []
+    valuation_values = {row["metric_name"]: row["metric_value"] for row in valuation_rows}
+    valuation_period = [{"id": ttm_period["id"], "fiscal_year": f"TTM {ttm_period['period_end']}"}]
+    valuation_matrix = build_historical_matrix(valuation_period, {ttm_period["id"]: valuation_values}, "Valuation")
+    valuation_matrix.columns = ["Metric", f"Current / TTM through {ttm_period['period_end']}"]
+    st.dataframe(valuation_matrix, hide_index=True)
+    if not valuation_rows:
+        st.info("Update the Yahoo price and calculate all metrics to populate current valuation ratios.")
+else:
+    st.info("A persisted TTM period is required before current valuation ratios can be calculated.")
 
 with st.expander("Data & provenance"):
     audit_period = st.selectbox("Inspect fiscal period", historical_periods, format_func=lambda row: f"FY{row['fiscal_year']} ending {row['period_end']}")
