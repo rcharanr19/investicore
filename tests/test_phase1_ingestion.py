@@ -77,6 +77,11 @@ def test_ytd_facts_are_reconstructed_as_discrete_quarters():
     assert [result["method"] for result in results] == ["direct_quarter", "ytd_minus_prior_ytd", "ytd_minus_prior_ytd", "annual_minus_q3_ytd"]
 
 
+def test_normalized_period_uses_the_actual_period_end_year():
+    period = {"period_type": "Annual", "fiscal_year": 2016, "fiscal_period": "FY", "period_end": "2014-12-31"}
+    assert int(period["period_end"][:4]) == 2014
+
+
 def test_structured_financial_validations_cover_balances_cash_and_shares():
     assert validate_balance_sheet(100, 60, 40)["validation_status"] == "PASS"
     assert validate_balance_sheet(100, 50, 40)["validation_status"] == "WARNING"

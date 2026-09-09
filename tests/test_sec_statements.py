@@ -88,11 +88,30 @@ def test_discover_periods(sample_xbrl_facts):
     assert annuals[0]["fiscal_year"] == 2024
     assert annuals[1]["fiscal_year"] == 2023
     assert annuals[2]["fiscal_year"] == 2022
-
     assert len(quarterlies) == 3
     assert quarterlies[0]["fiscal_period"] == "Q4"
     assert quarterlies[1]["fiscal_period"] == "Q3"
     assert quarterlies[2]["fiscal_period"] == "Q2"
+
+
+def test_discover_periods_prefers_current_annual_fact_over_comparatives():
+    facts = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {
+                        "USD": [
+                            {"val": 100, "fy": 2012, "fp": "FY", "form": "10-K", "filed": "2013-02-01", "end": "2010-12-31", "start": "2010-01-01", "accn": "acc"},
+                            {"val": 200, "fy": 2012, "fp": "FY", "form": "10-K", "filed": "2013-02-01", "end": "2011-12-31", "start": "2011-01-01", "accn": "acc"},
+                            {"val": 300, "fy": 2012, "fp": "FY", "form": "10-K", "filed": "2013-02-01", "end": "2012-12-31", "start": "2012-01-01", "accn": "acc"},
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    annuals, _ = SECStatementReconstructor()._discover_periods(facts)
+    assert annuals == [{"period_type": "Annual", "fiscal_year": 2012, "fiscal_period": "FY", "period_start": "2012-01-01", "period_end": "2012-12-31", "form": "10-K", "filed": "2013-02-01", "accn": "acc"}]
 
 
 def test_reconstruct_statements_for_period(sample_xbrl_facts):

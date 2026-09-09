@@ -402,14 +402,18 @@ class Phase1SECIngestionService:
         return True
 
     def _upsert_period(self, company_id: str, filing: dict[str, Any], period: dict[str, Any]) -> dict[str, Any]:
+        period_end = str(period["period_end"])
         payload = {
             "company_id": company_id,
             "period_type": period["period_type"],
-            "fiscal_year": period["fiscal_year"],
+            # SEC Company Facts `fy` can describe the filing context of a
+            # comparative fact. The actual period end is the canonical fiscal
+            # label for normalized annual and quarterly history.
+            "fiscal_year": int(period_end[:4]),
             "fiscal_period": period["fiscal_period"],
-            "calendar_year": str(period["period_end"])[:4],
+            "calendar_year": period_end[:4],
             "period_start": period.get("period_start"),
-            "period_end": period["period_end"],
+            "period_end": period_end,
             "source_filing_id": filing["id"],
         }
         result = self._table("financial_periods").upsert(

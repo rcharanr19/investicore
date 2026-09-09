@@ -66,7 +66,15 @@ class SECStatementReconstructor:
                         # Annual Period Detection: Form 10-K / 20-F or fp == 'FY'
                         if fp == "FY" or "10-K" in form or "20-F" in form:
                             prev = annual_map.get(fy)
-                            if not prev or (filed and str(filed) > str(prev.get("filed") or "")):
+                            should_replace = (
+                                not prev
+                                or (filed and str(filed) > str(prev.get("filed") or ""))
+                                or (
+                                    str(filed or "") == str(prev.get("filed") or "")
+                                    and str(end) > str(prev.get("period_end") or "")
+                                )
+                            )
+                            if should_replace:
                                 annual_map[fy] = {
                                     "period_type": "Annual",
                                     "fiscal_year": int(fy),
