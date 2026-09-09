@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Iterable
 
 import pandas as pd
 import yfinance as yf
@@ -92,6 +92,37 @@ def fetch_current_price(ticker: str) -> float | None:
     clean_ticker = (ticker or "").strip().upper()
     if not clean_ticker:
         return None
+
+
+def closes_on_or_before(history: pd.DataFrame, period_ends: Iterable[str]) -> dict[str, tuple[str, float]]:
+    """Select Yahoo's unadjusted Close on each period end or preceding trading day."""
+    if history.empty or "Close" not in history.columns:
+        return {}
+    indexed = history.copy()
+    indexed.index = pd.to_datetime(indexed.index).tz_localize(None)
+    result: dict[str, tuple[str, float]] = {}
+    for period_end in period_ends:
+        target = pd.Timestamp(period_end)
+        eligible = indexed.loc[indexed.index <= target]
+        if not eligible.empty:
+            row = eligible.iloc[-1]
+            result[str(period_end)] = (eligible.index[-1].date().isoformat(), float(row["Close"]))
+    return result
+
+
+def fetch_historical_closes(ticker: str, period_ends: Iterable[str]) -> dict[str, tuple[str, float]]:
+    """Retrieve one Yahoo history range and map fiscal period ends to prior trading closes."""
+    ends = sorted({str(period_end) for period_end in period_ends})
+    if not ticker or not ends:
+        return {}
+    try:
+        start = (pd.Timestamp(ends[0]) - pd.Timedelta(days=10)).date().isoformat()
+        end = (pd.Timestamp(ends[-1]) + pd.Timedelta(days=2)).date().isoformat()
+        history = yf.Ticker(ticker.strip().upper()).history(start=start, end=end, auto_adjust=False)
+        return closes_on_or_before(history, ends)
+    except Exception as exc:
+        logger.warning("Could not retrieve Yahoo historical closes for %s: %s", ticker, exc)
+        return {}
 
     try:
         info = yf.Ticker(clean_ticker).info or {}

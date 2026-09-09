@@ -4,6 +4,8 @@
 
 Phase 2 calculates analysis metrics only from preferred Phase 1 normalized financial records and persisted TTM periods. SEC remains the source for accounting values. Yahoo Finance provides only timestamped market-price snapshots for market-based ratios.
 
+Historical annual valuation uses Yahoo Finance's unadjusted `Close` on the SEC fiscal period end, or the immediately preceding trading-day close when the period end is not a trading day. Historical valuation snapshots are stored independently from current prices and only feed their matching annual financial period.
+
 ## Period conventions
 
 Annual metrics compare the immediately preceding annual fiscal period. Quarterly growth compares the same fiscal quarter one year earlier. TTM uses the persisted Phase 1 trailing-four-quarter period. A Phase 1 refresh that writes normalized values triggers a Phase 2 recalculation using the latest stored market price, when present.

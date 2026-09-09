@@ -245,6 +245,35 @@ class DerivedMetricsService:
             saved += len(rows)
         return saved + self._calculate_cagrs(company_id)
 
+    def save_historical_prices(self, company_id: str, ticker: str, closes: dict[str, tuple[str, float]]) -> dict[str, dict[str, Any]]:
+        """Persist fiscal-period close snapshots keyed by financial period-end date."""
+        rows = []
+        for period_end, (market_date, price) in closes.items():
+            rows.append({
+                "company_id": company_id,
+                "ticker": ticker,
+                "price": price,
+                "source": "Yahoo Finance close",
+                "market_timestamp": f"{market_date}T00:00:00+00:00",
+                "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            })
+        saved = []
+        for row in rows:
+            saved.append(self.client.schema("investicorev2").table("market_prices").insert(row).execute().data[0])
+        return {period_end: price for period_end, price in zip(closes, saved)}
+
+    def calculate_historical_valuations(self, company_id: str, ticker: str, closes: dict[str, tuple[str, float]]) -> int:
+        """Calculate annual valuation metrics using each annual fiscal-period close."""
+        schema = self.client.schema("investicorev2")
+        periods = schema.table("financial_periods").select("id,period_end").eq("company_id", company_id).eq("period_type", "Annual").execute().data or []
+        prices = self.save_historical_prices(company_id, ticker, closes)
+        saved = 0
+        for period in periods:
+            snapshot = prices.get(period["period_end"])
+            if snapshot:
+                saved += len(self.calculate_and_save(company_id, period["id"], snapshot))
+        return saved
+
     def save_latest_market_price(self, company_id: str, ticker: str, price: float) -> dict[str, Any]:
         return self.client.schema("investicorev2").table("market_prices").insert({
             "company_id": company_id,

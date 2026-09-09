@@ -6,7 +6,7 @@ import streamlit as st
 from components.historical_matrix import METRIC_GROUPS, build_historical_matrix, format_metric_value
 from database.client import get_supabase_client
 from services.derived_metrics import DerivedMetricsService
-from services.financial_fetcher import fetch_current_price
+from services.financial_fetcher import fetch_current_price, fetch_historical_closes
 from services.sec.activity import SECActivityService
 from services.sec.filings import sec_filing_service
 from services.sec.submissions import sec_submissions_service
@@ -42,7 +42,10 @@ if st.button("Update Yahoo price and calculate all metrics", type="primary", ico
         market_price = None
     else:
         market_price = DerivedMetricsService(client).save_latest_market_price(company["id"], company["ticker"], price)
-    saved = DerivedMetricsService(client).calculate_all(company["id"], market_price)
+    service = DerivedMetricsService(client)
+    saved = service.calculate_all(company["id"], market_price)
+    historical_closes = fetch_historical_closes(company["ticker"], [item["period_end"] for item in annual_periods])
+    saved += service.calculate_historical_valuations(company["id"], company["ticker"], historical_closes)
     st.success(f"Calculated {saved} metrics across annual, quarterly, and TTM periods.")
 
 period_ids = [period["id"] for period in historical_periods]
@@ -71,10 +74,8 @@ for start in range(0, len(snapshot_metrics), 3):
         column.metric(label, value)
 
 st.subheader(f"Historical fundamentals: {range_option}")
-default_open = {"Income statement", "Cash flow", "Balance sheet", "Growth & margins", "Profitability & returns", "Financial strength"}
+default_open = {"Income statement", "Cash flow", "Balance sheet", "Growth & margins", "Profitability & returns", "Financial strength", "Valuation"}
 for section in METRIC_GROUPS:
-    if section == "Valuation":
-        continue
     with st.expander(section, expanded=section in default_open):
         st.dataframe(
             build_historical_matrix(
