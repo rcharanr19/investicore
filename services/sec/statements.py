@@ -44,7 +44,7 @@ class SECStatementReconstructor:
             "NetIncomeLoss",
         ]
 
-        annual_map: dict[int, dict[str, Any]] = {}
+        annual_map: dict[str, dict[str, Any]] = {}
         quarterly_map: dict[str, dict[str, Any]] = {}
 
         for c in anchor_concepts:
@@ -65,7 +65,8 @@ class SECStatementReconstructor:
 
                         # Annual Period Detection: Form 10-K / 20-F or fp == 'FY'
                         if fp == "FY" or "10-K" in form or "20-F" in form:
-                            prev = annual_map.get(fy)
+                            annual_key = str(accn or f"{fy}:{end}")
+                            prev = annual_map.get(annual_key)
                             should_replace = (
                                 not prev
                                 or (filed and str(filed) > str(prev.get("filed") or ""))
@@ -75,9 +76,9 @@ class SECStatementReconstructor:
                                 )
                             )
                             if should_replace:
-                                annual_map[fy] = {
+                                annual_map[annual_key] = {
                                     "period_type": "Annual",
-                                    "fiscal_year": int(fy),
+                                    "fiscal_year": int(str(end)[:4]),
                                     "fiscal_period": "FY",
                                     "period_start": start,
                                     "period_end": end,
@@ -86,10 +87,10 @@ class SECStatementReconstructor:
                                     "accn": accn,
                                 }
                             # A 10-K supplies the annual value needed to derive Q4.
-                            q_key = f"{fy}_Q4"
+                            q_key = f"{str(end)[:4]}_Q4"
                             quarterly_map.setdefault(q_key, {
                                 "period_type": "Quarterly",
-                                "fiscal_year": int(fy),
+                                "fiscal_year": int(str(end)[:4]),
                                 "fiscal_period": "Q4",
                                 "fiscal_quarter": 4,
                                 "period_start": start,
@@ -136,7 +137,7 @@ class SECStatementReconstructor:
         }
 
         # Sort annual desc by fiscal year
-        sorted_annual = sorted(annual_map.values(), key=lambda x: x["fiscal_year"], reverse=True)
+        sorted_annual = sorted(annual_map.values(), key=lambda x: str(x["period_end"]), reverse=True)
         # Sort quarterly desc by period end
         sorted_quarterly = sorted(quarterly_map.values(), key=lambda x: str(x["period_end"]), reverse=True)
 
